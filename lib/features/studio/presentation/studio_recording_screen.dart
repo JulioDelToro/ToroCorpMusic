@@ -589,7 +589,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             Positioned(
               top: 75,
               right: 16,
-              width: 290,
+              width: 300,
               child: Material(
                 color: Colors.transparent,
                 child: Container(
@@ -613,11 +613,23 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         child: Row(
                           children: [
-                            Text(
-                              'ToroCorp Music',
-                              style: AppTypography.sfProHeadline(
-                                fontSize: 16,
-                                color: AppColors.chordAmber,
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.asset(
+                                'assets/images/app_logo.jpeg',
+                                width: 24,
+                                height: 24,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'ToroCorp Music',
+                                style: AppTypography.sfProHeadline(
+                                  fontSize: 16,
+                                  color: AppColors.chordAmber,
+                                ),
                               ),
                             ),
                           ],
