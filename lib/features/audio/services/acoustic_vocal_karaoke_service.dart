@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
-import '../../scripts/models/lyric_token.dart';
 import '../../scripts/models/song_script.dart';
 
 /// Estado en tiempo real del motor de karaoke acústico.
@@ -43,16 +41,17 @@ class AcousticKaraokeState {
   }
 }
 
-/// Motor de seguimiento vocal en tiempo real para Karaoke y Teleprompter de ToroCorp Music.
-/// 
-/// Características clave:
-/// 1. Cero bips o sonidos de desconexión del sistema: mantiene el canal de audio abierto limpiamente.
-/// 2. Detección de actividad vocal (VAD) acústica en tiempo real.
-/// 3. Espera paciente: cuando el cantante se detiene o pausa (solo de guitarra, respiración),
-///    el teleprompter se congela en la palabra exacta y lo espera.
-/// 4. Avance automático: cuando la voz continúa cantando, avanza de palabra e ilumina la letra;
-///    al completar el verso, pasa automáticamente a la siguiente línea de la canción.
-/// 5. Funciona de manera independiente a la cámara (con cámara activa o desactivada).
+/// Motor de karaoke acústico en tiempo real para ToroCorp Music.
+///
+/// ## Comportamiento clave:
+/// - **Ilumina la palabra actual** siempre que haya energía vocal por encima del umbral.
+/// - **Avanza a la siguiente palabra** después de que el usuario ha cantado la actual durante
+///   suficiente tiempo (estimado por longitud de sílabas). Avance suave, no brusco.
+/// - **Se congela** exactamente en la palabra que se cantaba cuando el usuario para
+///   (respiro, solo de guitarra, pausa). No salta, no retrocede, simplemente espera.
+/// - **Reanuda** desde esa misma palabra en cuanto detecta voz de nuevo.
+/// - **Cero bips ni sonidos de sistema**: el canal de audio nunca se cierra ni reconecta.
+/// - Funciona sin importar si la cámara está activa o no.
 class AcousticVocalKaraokeService {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final StreamController<AcousticKaraokeState> _stateController =
@@ -60,14 +59,34 @@ class AcousticVocalKaraokeService {
 
   SongScript song;
   AcousticKaraokeState _state = const AcousticKaraokeState();
-  StreamSubscription<Uint8List>? _audioStreamSubscription;
+
   StreamSubscription<Amplitude>? _amplitudeSubscription;
 
-  // Parámetros de detección acústica
-  double _silenceThresholdDb = -42.0; // dBFS por debajo del cual se considera silencio
-  int _consecutiveSingingFrames = 0;
-  int _consecutiveSilenceFrames = 0;
-  DateTime _lastWordAdvanceTime = DateTime.now();
+  // ── Parámetros de VAD (ajustables) ───────────────────────────────────────
+  /// dBFS por encima del cual se considera que hay voz activa.
+  /// -40 dB suele funcionar bien en habitaciones normales.
+  double silenceThresholdDb = -40.0;
+
+  /// Número de muestras consecutivas con voz antes de confirmar "está cantando".
+  static const int _voiceConfirmFrames = 2;
+
+  /// Número de muestras consecutivas sin voz antes de congelar el karaoke.
+  static const int _silenceConfirmFrames = 5;
+
+  /// Tiempo mínimo que hay que cantar una palabra antes de avanzar (ms).
+  static const int _minWordHoldMs = 350;
+
+  /// Tiempo máximo por palabra — si lleva más de esto cantando, avanza sí o sí.
+  static const int _maxWordHoldMs = 1800;
+  // ─────────────────────────────────────────────────────────────────────────
+
+  int _voiceFrames = 0;
+  int _silenceFrames = 0;
+  bool _confirmedSinging = false;
+
+  /// Momento en que empezamos a cantar la palabra actual.
+  DateTime? _wordStartTime;
+
   bool _isRunning = false;
 
   AcousticVocalKaraokeService({required this.song}) {
@@ -83,261 +102,209 @@ class AcousticVocalKaraokeService {
     reset();
   }
 
-  void setSilenceThreshold(double thresholdDb) {
-    _silenceThresholdDb = thresholdDb;
-  }
+  // ── Arranque ─────────────────────────────────────────────────────────────
 
-  /// Inicia la escucha continua de micrófono sin cortes ni sonidos del sistema
   Future<bool> startTracking() async {
     if (_isRunning) return true;
-
     try {
       final hasPerm = await _audioRecorder.hasPermission();
       if (!hasPerm) {
-        debugPrint('ToroCorp Music: Permiso de micrófono no concedido');
+        debugPrint('ToroCorp Music: permiso de micrófono no concedido.');
         return false;
       }
 
       _isRunning = true;
-      _lastWordAdvanceTime = DateTime.now();
 
-      // Iniciar captura PCM de audio en tiempo real
+      // Iniciar grabación de stream para habilitar el canal de audio.
+      // Usamos el grabador solo para mantener el micro abierto y leer amplitud.
       const config = RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
       );
-
+      // startStream mantiene el canal de audio abierto sin guardar archivo.
       final stream = await _audioRecorder.startStream(config);
-      _audioStreamSubscription = stream.listen(
-        _processAudioBuffer,
-        onError: (err) {
-          debugPrint('ToroCorp Music: Stream audio error: $err');
-        },
-      );
+      // Descartamos el stream de bytes; usamos onAmplitudeChanged.
+      stream.listen((_) {}, onError: (_) {});
 
-      // También monitorear amplitud oficial cada 60ms como respaldo
+      // Leer amplitud cada 80 ms — frecuencia suficiente para karaoke fluido.
       _amplitudeSubscription = _audioRecorder
-          .onAmplitudeChanged(const Duration(milliseconds: 60))
-          .listen((amp) {
-        _processAmplitude(amp.current);
-      });
+          .onAmplitudeChanged(const Duration(milliseconds: 80))
+          .listen(_handleAmplitude);
 
-      debugPrint('ToroCorp Music: Motor de Karaoke Acústico iniciado exitosamente');
+      debugPrint('ToroCorp Music: motor de karaoke acústico activo.');
       return true;
     } catch (e) {
-      debugPrint('ToroCorp Music: Error iniciando seguimiento acústico: $e');
+      debugPrint('ToroCorp Music: error al iniciar karaoke acústico: $e');
       _isRunning = false;
       return false;
     }
   }
 
-  /// Procesa buffer de audio PCM 16-bit para calcular RMS y energía vocal
-  void _processAudioBuffer(Uint8List buffer) {
-    if (buffer.length < 2) return;
+  // ── Procesado de amplitud ─────────────────────────────────────────────────
 
-    // Calcular RMS de las muestras PCM 16-bit
-    double sumSquares = 0.0;
-    int samplesCount = buffer.length ~/ 2;
-    int zeroCrossings = 0;
-    int prevSample = 0;
+  void _handleAmplitude(Amplitude amp) {
+    final double db = amp.current;
+    final bool hasVoice = db > silenceThresholdDb;
 
-    for (int i = 0; i < buffer.length - 1; i += 2) {
-      // Little-endian 16-bit signed integer
-      int sample = (buffer[i + 1] << 8) | buffer[i];
-      if (sample >= 32768) sample -= 65536;
-
-      sumSquares += sample * sample;
-
-      if ((sample > 0 && prevSample <= 0) || (sample < 0 && prevSample >= 0)) {
-        zeroCrossings++;
-      }
-      prevSample = sample;
-    }
-
-    final double rms = math.sqrt(sumSquares / samplesCount);
-    // Convertir RMS a dBFS aproximado (-100 a 0 dB)
-    final double db = rms > 0.0001
-        ? 20 * (math.log(rms / 32768.0) / math.ln10)
-        : -100.0;
-
-    // Zero-crossing rate: la voz cantada tiene un ZCR moderado en comparación con ruido blanco
-    final double zcr = zeroCrossings / samplesCount;
-    final bool isVocalSignal = db > _silenceThresholdDb && zcr < 0.45;
-
-    _evaluateVocalActivity(db, isVocalSignal);
-  }
-
-  /// Respaldo de amplitud
-  void _processAmplitude(double currentDb) {
-    if (currentDb > -120.0) {
-      final isVocalSignal = currentDb > _silenceThresholdDb;
-      _evaluateVocalActivity(currentDb, isVocalSignal);
-    }
-  }
-
-  /// Evalúa si el usuario está cantando o en silencio, y avanza o espera pacientemente
-  void _evaluateVocalActivity(double db, bool isVocal) {
-    if (isVocal) {
-      _consecutiveSingingFrames++;
-      _consecutiveSilenceFrames = 0;
+    if (hasVoice) {
+      _voiceFrames++;
+      _silenceFrames = 0;
     } else {
-      _consecutiveSilenceFrames++;
-      _consecutiveSingingFrames = 0;
+      _silenceFrames++;
+      _voiceFrames = 0;
     }
 
-    // Se considera cantando si hay al menos 2 frames consecutivos con energía vocal
-    final bool isCurrentlySinging = _consecutiveSingingFrames >= 2;
-    final bool isCurrentlySilent = _consecutiveSilenceFrames >= 3;
-
-    if (isCurrentlySinging) {
-      // Cantando: avanzamos el karaoke conforme a la duración y ritmo de la palabra
-      _onVoiceDetected(db);
-    } else if (isCurrentlySilent) {
-      // Silencio o pausa: nos congelamos en la palabra actual y lo esperamos
-      _onSilenceDetected(db);
+    if (!_confirmedSinging && _voiceFrames >= _voiceConfirmFrames) {
+      // Transición: silencio → cantando
+      _confirmedSinging = true;
+      _wordStartTime ??= DateTime.now();
+      _emitSinging(db);
+    } else if (_confirmedSinging && _silenceFrames >= _silenceConfirmFrames) {
+      // Transición: cantando → silencio / pausa
+      _confirmedSinging = false;
+      _wordStartTime = null;
+      _emitWaiting(db);
+    } else if (_confirmedSinging) {
+      // Sigue cantando: evaluar si ya es hora de avanzar la palabra.
+      _tryAdvanceWord(db);
     }
   }
 
-  void _onVoiceDetected(double db) {
-    final now = DateTime.now();
-    final elapsedMs = now.difference(_lastWordAdvanceTime).inMilliseconds;
-
-    final lines = song.lines;
-    if (lines.isEmpty) return;
-
-    int currentLine = _state.lineIndex;
-    int currentWord = _state.wordIndex;
-
-    if (currentLine >= lines.length) return;
-
-    final currentTokens = lines[currentLine].tokens;
-    if (currentTokens.isEmpty) return;
-
-    // Estimar duración natural de la palabra según cantidad de sílabas/caracteres
-    final LyricToken activeToken = currentTokens[currentWord.clamp(0, currentTokens.length - 1)];
-    final int wordLength = activeToken.word.length;
-    // Base de tiempo: palabras cortas (2-3 letras) ~300ms; palabras largas ~650ms
-    final int requiredSungDurationMs = (wordLength * 70).clamp(280, 750);
-
-    bool shouldAdvanceWord = false;
-
-    if (elapsedMs >= requiredSungDurationMs) {
-      shouldAdvanceWord = true;
-      _lastWordAdvanceTime = now;
-    }
-
-    if (shouldAdvanceWord) {
-      int nextWord = currentWord + 1;
-      int nextLine = currentLine;
-
-      if (nextWord >= currentTokens.length) {
-        // Fin del verso actual: pasar al siguiente verso de la canción
-        if (nextLine + 1 < lines.length) {
-          nextLine++;
-          nextWord = 0;
-        } else {
-          // Último verso completado
-          nextWord = currentTokens.length - 1;
-        }
-      }
-
-      _state = _state.copyWith(
-        lineIndex: nextLine,
-        wordIndex: nextWord,
-        isSinging: true,
-        volumeDb: db,
-        isWaitingForVoice: false,
-        vocalEnergy: ((db + 60) / 60).clamp(0.0, 1.0),
-      );
-    } else {
-      // Mantener la palabra actual pero con estado iluminado activo
-      _state = _state.copyWith(
-        isSinging: true,
-        volumeDb: db,
-        isWaitingForVoice: false,
-        vocalEnergy: ((db + 60) / 60).clamp(0.0, 1.0),
-      );
-    }
-
+  void _emitSinging(double db) {
+    _state = _state.copyWith(
+      isSinging: true,
+      isWaitingForVoice: false,
+      volumeDb: db,
+      vocalEnergy: _normalizeEnergy(db),
+    );
     _stateController.add(_state);
   }
 
-  void _onSilenceDetected(double db) {
-    if (!_state.isWaitingForVoice || _state.isSinging) {
-      // Entró en pausa o silencio: detener el avance y esperar en esta misma palabra
-      _state = _state.copyWith(
-        isSinging: false,
-        volumeDb: db,
-        isWaitingForVoice: true,
-        vocalEnergy: 0.0,
-      );
-      _stateController.add(_state);
+  void _emitWaiting(double db) {
+    _state = _state.copyWith(
+      isSinging: false,
+      isWaitingForVoice: true,
+      volumeDb: db,
+      vocalEnergy: 0.0,
+    );
+    _stateController.add(_state);
+  }
+
+  void _tryAdvanceWord(double db) {
+    // Actualizar estado visual (sigue iluminado)
+    _state = _state.copyWith(
+      isSinging: true,
+      isWaitingForVoice: false,
+      volumeDb: db,
+      vocalEnergy: _normalizeEnergy(db),
+    );
+    _stateController.add(_state);
+
+    // Calcular cuánto tiempo llevamos cantando la palabra actual.
+    final now = DateTime.now();
+    final heldMs = _wordStartTime != null
+        ? now.difference(_wordStartTime!).inMilliseconds
+        : 0;
+
+    // Estimar duración esperada de la palabra según su longitud.
+    final int targetMs = _wordDurationMs();
+
+    if (heldMs >= targetMs) {
+      _advanceWord();
+      _wordStartTime = now; // Reiniciar temporizador para la siguiente palabra
     }
   }
 
-  /// Avance manual si el usuario toca la pantalla
-  void nextWordManual() {
+  /// Estima la duración (ms) que se debería cantar la palabra actual.
+  int _wordDurationMs() {
+    final lines = song.lines;
+    if (lines.isEmpty) return _minWordHoldMs;
+    final lineIdx = _state.lineIndex.clamp(0, lines.length - 1);
+    final tokens = lines[lineIdx].tokens;
+    if (tokens.isEmpty) return _minWordHoldMs;
+    final wordIdx = _state.wordIndex.clamp(0, tokens.length - 1);
+    final word = tokens[wordIdx].word.replaceAll(RegExp(r'[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]'), '');
+    // Aproximación de sílabas: ~1 sílaba cada 2 caracteres vocálicos.
+    final int syllables = _countSyllables(word);
+    // Cada sílaba cantada dura aprox 250-400 ms.
+    return (syllables * 300).clamp(_minWordHoldMs, _maxWordHoldMs);
+  }
+
+  int _countSyllables(String word) {
+    if (word.isEmpty) return 1;
+    final vowels = RegExp(r'[aeiouáéíóúüAEIOUÁÉÍÓÚÜ]');
+    final count = vowels.allMatches(word).length;
+    return count < 1 ? 1 : count;
+  }
+
+  void _advanceWord() {
     final lines = song.lines;
     if (lines.isEmpty) return;
 
-    int nextWord = _state.wordIndex + 1;
-    int nextLine = _state.lineIndex;
+    int line = _state.lineIndex;
+    int word = _state.wordIndex + 1;
 
-    if (nextWord >= lines[nextLine].tokens.length) {
-      if (nextLine + 1 < lines.length) {
-        nextLine++;
-        nextWord = 0;
+    if (line >= lines.length) return;
+
+    if (word >= lines[line].tokens.length) {
+      // Fin de verso: pasar al siguiente.
+      if (line + 1 < lines.length) {
+        line++;
+        word = 0;
       } else {
+        // Última palabra: quedarse aquí.
         return;
       }
     }
 
-    _lastWordAdvanceTime = DateTime.now();
     _state = _state.copyWith(
-      lineIndex: nextLine,
-      wordIndex: nextWord,
+      lineIndex: line,
+      wordIndex: word,
       isSinging: true,
       isWaitingForVoice: false,
     );
     _stateController.add(_state);
   }
 
-  /// Retroceso manual si el usuario retrocede
-  void previousWordManual() {
-    int prevWord = _state.wordIndex - 1;
-    int prevLine = _state.lineIndex;
+  double _normalizeEnergy(double db) {
+    return ((db - silenceThresholdDb) / (0.0 - silenceThresholdDb)).clamp(0.0, 1.0);
+  }
 
-    if (prevWord < 0) {
-      if (prevLine > 0) {
-        prevLine--;
-        prevWord = song.lines[prevLine].tokens.length - 1;
+  // ── Control manual (toque en pantalla) ───────────────────────────────────
+
+  void nextWordManual() {
+    _wordStartTime = DateTime.now();
+    _advanceWord();
+  }
+
+  void previousWordManual() {
+    int line = _state.lineIndex;
+    int word = _state.wordIndex - 1;
+    if (word < 0) {
+      if (line > 0) {
+        line--;
+        word = song.lines[line].tokens.length - 1;
       } else {
-        prevWord = 0;
+        word = 0;
       }
     }
-
-    _lastWordAdvanceTime = DateTime.now();
-    _state = _state.copyWith(
-      lineIndex: prevLine,
-      wordIndex: prevWord,
-      isSinging: false,
-      isWaitingForVoice: true,
-    );
+    _wordStartTime = DateTime.now();
+    _state = _state.copyWith(lineIndex: line, wordIndex: word, isSinging: false, isWaitingForVoice: true);
     _stateController.add(_state);
   }
 
-  /// Reinicia al principio de la canción
   void reset() {
-    _lastWordAdvanceTime = DateTime.now();
+    _voiceFrames = 0;
+    _silenceFrames = 0;
+    _confirmedSinging = false;
+    _wordStartTime = null;
     _state = const AcousticKaraokeState();
     _stateController.add(_state);
   }
 
-  /// Detiene el motor y libera recursos
   Future<void> dispose() async {
     _isRunning = false;
-    await _audioStreamSubscription?.cancel();
     await _amplitudeSubscription?.cancel();
     await _audioRecorder.dispose();
     await _stateController.close();

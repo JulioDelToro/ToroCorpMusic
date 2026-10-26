@@ -8,12 +8,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
       const MethodChannel('com.llfbandit.record/messages'),
       (MethodCall methodCall) async {
         if (methodCall.method == 'create') return null;
         if (methodCall.method == 'hasPermission') return true;
         if (methodCall.method == 'dispose') return null;
+        if (methodCall.method == 'stop') return null;
         return null;
       },
     );
@@ -45,13 +47,14 @@ void main() {
       await service.dispose();
     });
 
-    test('initial state has lineIndex 0, wordIndex 0 and isWaitingForVoice true', () {
+    test('estado inicial: línea 0, palabra 0, esperando voz', () {
       expect(service.currentState.lineIndex, equals(0));
       expect(service.currentState.wordIndex, equals(0));
       expect(service.currentState.isWaitingForVoice, isTrue);
+      expect(service.currentState.isSinging, isFalse);
     });
 
-    test('manual word advancement advances to next word and stays in line', () {
+    test('avance manual avanza a la siguiente palabra dentro del mismo verso', () {
       service.nextWordManual();
       expect(service.currentState.wordIndex, equals(1));
       expect(service.currentState.lineIndex, equals(0));
@@ -61,15 +64,15 @@ void main() {
       expect(service.currentState.lineIndex, equals(0));
     });
 
-    test('advancing past end of line moves to the next verse', () {
-      service.nextWordManual(); // word 1
-      service.nextWordManual(); // word 2
-      service.nextWordManual(); // line 1, word 0
+    test('avance manual al final de verso pasa a la siguiente línea', () {
+      service.nextWordManual(); // palabra 1
+      service.nextWordManual(); // palabra 2
+      service.nextWordManual(); // línea 1, palabra 0
       expect(service.currentState.lineIndex, equals(1));
       expect(service.currentState.wordIndex, equals(0));
     });
 
-    test('manual previousWord rewinds word index or stays at 0', () {
+    test('retroceso manual retrocede palabra y se queda en 0,0 si ya es la primera', () {
       service.nextWordManual();
       expect(service.currentState.wordIndex, equals(1));
 
@@ -78,14 +81,32 @@ void main() {
 
       service.previousWordManual();
       expect(service.currentState.wordIndex, equals(0));
+      expect(service.currentState.lineIndex, equals(0));
     });
 
-    test('reset restores initial state', () {
+    test('reset restaura estado inicial', () {
       service.nextWordManual();
       service.nextWordManual();
       service.reset();
       expect(service.currentState.wordIndex, equals(0));
       expect(service.currentState.lineIndex, equals(0));
+      expect(service.currentState.isWaitingForVoice, isTrue);
+    });
+
+    test('updateSong cambia la canción y reinicia el estado', () {
+      service.nextWordManual();
+      service.nextWordManual();
+
+      const newSong = SongScript(
+        title: 'Nueva Canción',
+        lines: [
+          LyricLine(tokens: [LyricToken(word: 'Hola')]),
+        ],
+      );
+      service.updateSong(newSong);
+
+      expect(service.currentState.lineIndex, equals(0));
+      expect(service.currentState.wordIndex, equals(0));
     });
   });
 }
