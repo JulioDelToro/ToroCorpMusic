@@ -50,10 +50,11 @@ Para garantizar que el software se pueda vender y monetizar bajo suscripción si
 
 ### 3.1 Estética OLED Black
 * **Fondo General**: Negro Puro (`#000000`). En pantallas OLED/AMOLED (teléfonos modernos) apaga los píxeles, logrando un contraste infinito, aspecto cinematográfico y ahorro significativo de batería durante grabaciones prolongadas.
-* **Tipografía**:
-  * Letras cantadas: Blanco puro (`#FFFFFF`), peso tipográfico Bold/SemiBold, escalable de 18sp a 36sp.
-  * Notas/Acordes (fila inferior): Acentos legibles (Amarillo Ámbar `#FFD166` o Blanco tenue `#CCCCCC`) en fuente monoespaciada para alineación precisa con las sílabas.
-  * Resaltado de Karaoke: Resplandor dinámico (*glow*) y transición de color a medida que la palabra se canta.
+* **Tipografía (Ecosistema iOS / Apple Design)**:
+  * **Familia Tipográfica Principal**: **SF Pro Display / SF Pro Text** (la tipografía oficial del ecosistema de iOS/Apple), garantizando máxima legibilidad, elegancia minimalista y estética prémium.
+  * **Letras cantadas (Teleprompter)**: SF Pro en Blanco puro (`#FFFFFF`), peso tipográfico `Bold` / `Heavy` (w700-w800), escalable de 18sp a 36sp con tracking óptico ajustado para lectura cómoda a distancia.
+  * **Notas / Acordes (Fila inferior)**: **SF Mono** (versión monoespaciada de Apple) en acento Ámbar Cálido (`#FFD166`) o Blanco Ceniza (`#CCCCCC`), garantizando que cada nota quede milimétricamente alineada debajo de la sílaba correspondiente.
+  * **Resaltado de Karaoke**: Resplandor dinámico (*glow*) y transición de color a medida que la palabra se canta.
 * **Bordes y Superficies**: Gris oscuro (`#1E1E1E` y `#2A2A2A`).
 
 ### 3.2 Pantalla de Inicio (Splash Screen en Video)
