@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -887,9 +887,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   }
 
   String _micSensitivityLabel() {
-    if (_micSensitivityDb <= -50) return 'Muy sensible ( dB)';
-    if (_micSensitivityDb <= -35) return 'Normal ( dB)';
-    return 'Poco sensible ( dB)';
+    final int val = _micSensitivityDb.toInt();
+    if (_micSensitivityDb <= -50) return 'Muy sensible ($val dB)';
+    if (_micSensitivityDb <= -35) return 'Normal ($val dB)';
+    return 'Poco sensible ($val dB)';
   }
   void _openSongEditor() {
     final textController = TextEditingController(
@@ -1017,24 +1018,26 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             right: 0,
             child: SafeArea(
               bottom: false,
-              child: GestureDetector(
-                onTap: () {
-                  // Toque en el teleprompter avanza de palabra si el usuario lo desea
-                  _acousticService.nextWordManual();
+              child: AnimatedBuilder(
+                animation: _teleprompterController,
+                builder: (context, _) {
+                  return TeleprompterBarWidget(
+                    song: _teleprompterController.song,
+                    activeLineIndex: _teleprompterController.activeLineIndex,
+                    activeWordIndex: _teleprompterController.activeWordIndex,
+                    isMirrorMode: _isMirrorMode,
+                    fontSize: _teleprompterController.fontSize,
+                    highlightColor: _karaokeHighlightColor,
+                    isSinging: _teleprompterController.isSinging,
+                    isWaitingForVoice: _teleprompterController.isWaitingForVoice,
+                    onResetTap: _teleprompterController.reset,
+                    onWordTap: (lineIdx, wordIdx) {
+                      _teleprompterController.jumpTo(lineIdx, wordIdx);
+                    },
+                    onNextTap: _teleprompterController.nextWord,
+                    onPrevTap: _teleprompterController.previousWord,
+                  );
                 },
-                child: AnimatedBuilder(
-                  animation: _teleprompterController,
-                  builder: (context, _) {
-                    return TeleprompterBarWidget(
-                      song: _teleprompterController.song,
-                      activeLineIndex: _teleprompterController.activeLineIndex,
-                      activeWordIndex: _teleprompterController.activeWordIndex,
-                      isMirrorMode: _isMirrorMode,
-                      fontSize: _teleprompterController.fontSize,
-                      highlightColor: _karaokeHighlightColor,
-                    );
-                  },
-                ),
               ),
             ),
           ),

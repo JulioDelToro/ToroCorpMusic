@@ -18,6 +18,8 @@ dependencies:
   speech_to_text: ^7.0.0
   gal: ^2.3.3
   record: ^7.1.2
+  audio_session: ^0.2.4
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

@@ -19,6 +19,10 @@ class TeleprompterController extends ChangeNotifier {
   int _activeWordIndex = 0;
   bool _isMirrorMode = false;
   double _fontSize = 26.0;
+  bool _isSinging = false;
+  bool _isWaitingForVoice = true;
+  double _volumeDb = -60.0;
+  double _vocalEnergy = 0.0;
 
   TeleprompterController({
     required SongScript initialSong,
@@ -34,23 +38,34 @@ class TeleprompterController extends ChangeNotifier {
   int get activeWordIndex => _activeWordIndex;
   bool get isMirrorMode => _isMirrorMode;
   double get fontSize => _fontSize;
+  bool get isSinging => _isSinging;
+  bool get isWaitingForVoice => _isWaitingForVoice;
+  double get volumeDb => _volumeDb;
+  double get vocalEnergy => _vocalEnergy;
 
   void updateSong(SongScript newSong) {
     _song = newSong;
     _activeLineIndex = 0;
     _activeWordIndex = 0;
+    _isSinging = false;
+    _isWaitingForVoice = true;
     notifyListeners();
   }
 
   void _onAlignmentStateChanged(AlignmentState state) {
     _activeLineIndex = state.currentLineIndex;
     _activeWordIndex = state.currentWordIndex;
+    _isSinging = state.isSinging;
     notifyListeners();
   }
 
   void _onAcousticStateChanged(AcousticKaraokeState state) {
     _activeLineIndex = state.lineIndex;
     _activeWordIndex = state.wordIndex;
+    _isSinging = state.isSinging;
+    _isWaitingForVoice = state.isWaitingForVoice;
+    _volumeDb = state.volumeDb;
+    _vocalEnergy = state.vocalEnergy;
     notifyListeners();
   }
 
@@ -67,22 +82,24 @@ class TeleprompterController extends ChangeNotifier {
   void jumpTo(int lineIndex, int wordIndex) {
     _activeLineIndex = lineIndex;
     _activeWordIndex = wordIndex;
+    acousticService?.jumpTo(lineIndex, wordIndex);
     notifyListeners();
   }
 
   void nextWord() {
-    final lines = _song.lines;
-    if (lines.isEmpty) return;
-    int nextW = _activeWordIndex + 1;
-    int nextL = _activeLineIndex;
-    if (nextW >= lines[nextL].tokens.length) {
-      if (nextL + 1 < lines.length) {
-        nextL++;
-        nextW = 0;
-      }
-    }
-    _activeLineIndex = nextL;
-    _activeWordIndex = nextW;
+    acousticService?.nextWordManual();
+  }
+
+  void previousWord() {
+    acousticService?.previousWordManual();
+  }
+
+  void reset() {
+    _activeLineIndex = 0;
+    _activeWordIndex = 0;
+    _isSinging = false;
+    _isWaitingForVoice = true;
+    acousticService?.reset();
     notifyListeners();
   }
 

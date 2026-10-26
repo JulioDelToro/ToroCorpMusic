@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../scripts/models/song_script.dart';
@@ -41,17 +45,15 @@ class AcousticKaraokeState {
   }
 }
 
-/// Motor de karaoke acústico en tiempo real para ToroCorp Music.
-///
-/// ## Comportamiento clave:
-/// - **Ilumina la palabra actual** siempre que haya energía vocal por encima del umbral.
-/// - **Avanza a la siguiente palabra** después de que el usuario ha cantado la actual durante
-///   suficiente tiempo (estimado por longitud de sílabas). Avance suave, no brusco.
-/// - **Se congela** exactamente en la palabra que se cantaba cuando el usuario para
-///   (respiro, solo de guitarra, pausa). No salta, no retrocede, simplemente espera.
-/// - **Reanuda** desde esa misma palabra en cuanto detecta voz de nuevo.
-/// - **Cero bips ni sonidos de sistema**: el canal de audio nunca se cierra ni reconecta.
-/// - Funciona sin importar si la cámara está activa o no.
+/// Motor acústico de karaoke en tiempo real para ToroCorp Music.
+/// 
+/// Características:
+/// 1. Compatible con AudioSession (evita que el sistema operativo o la cámara silencien el micrófono).
+/// 2. Captura estable mediante MediaRecorder nativo en caché temporal.
+/// 3. Calibración automática del piso de ruido ambiental (adaptive noise floor).
+/// 4. Espera paciente en pausas y requintos: si el cantante deja de cantar para tocar la guitarra,
+///    el teleprompter se congela inmediatamente en esa palabra exacta y espera pacientemente.
+/// 5. Avance natural por sílabas al cantar.
 class AcousticVocalKaraokeService {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final StreamController<AcousticKaraokeState> _stateController =
@@ -62,31 +64,28 @@ class AcousticVocalKaraokeService {
 
   StreamSubscription<Amplitude>? _amplitudeSubscription;
 
-  // ── Parámetros de VAD (ajustables) ───────────────────────────────────────
-  /// dBFS por encima del cual se considera que hay voz activa.
-  /// -40 dB suele funcionar bien en habitaciones normales.
+  // ── Parámetros de Detección Vocal (VAD) ──────────────────────────────────
+  /// Umbral base definido por el usuario (-60 dB = muy sensible, -20 dB = poco sensible)
   double silenceThresholdDb = -40.0;
 
-  /// Número de muestras consecutivas con voz antes de confirmar "está cantando".
-  static const int _voiceConfirmFrames = 2;
+  /// Piso de ruido calibrado automáticamente al inicio
+  double _ambientFloorDb = -60.0;
+  int _calibrationFrames = 0;
+  static const int _maxCalibrationFrames = 8;
 
-  /// Número de muestras consecutivas sin voz antes de congelar el karaoke.
-  static const int _silenceConfirmFrames = 5;
+  /// Muestras consecutivas para confirmar canto / pausa
+  static const int _voiceConfirmFrames = 2; // ~100 ms
+  static const int _silenceConfirmFrames = 3; // ~150 ms
 
-  /// Tiempo mínimo que hay que cantar una palabra antes de avanzar (ms).
-  static const int _minWordHoldMs = 350;
-
-  /// Tiempo máximo por palabra — si lleva más de esto cantando, avanza sí o sí.
+  /// Límites de duración por palabra (ms)
+  static const int _minWordHoldMs = 280;
   static const int _maxWordHoldMs = 1800;
-  // ─────────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────────────────
 
   int _voiceFrames = 0;
   int _silenceFrames = 0;
   bool _confirmedSinging = false;
-
-  /// Momento en que empezamos a cantar la palabra actual.
   DateTime? _wordStartTime;
-
   bool _isRunning = false;
 
   AcousticVocalKaraokeService({required this.song}) {
@@ -102,50 +101,104 @@ class AcousticVocalKaraokeService {
     reset();
   }
 
-  // ── Arranque ─────────────────────────────────────────────────────────────
-
+  /// Inicia el seguimiento continuo con sesión de audio configurada
   Future<bool> startTracking() async {
     if (_isRunning) return true;
+
     try {
+      // 1. Configurar AudioSession para grabación compatible con cámara
+      try {
+        final session = await AudioSession.instance;
+        await session.configure(AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.defaultToSpeaker |
+              AVAudioSessionCategoryOptions.allowBluetooth,
+          avAudioSessionMode: AVAudioSessionMode.videoRecording,
+          androidAudioAttributes: const AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            flags: AndroidAudioFlags.none,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+        ));
+        await session.setActive(true);
+      } catch (e) {
+        debugPrint('ToroCorp Music: Info AudioSession: $e');
+      }
+
+      // 2. Verificar permisos
       final hasPerm = await _audioRecorder.hasPermission();
       if (!hasPerm) {
-        debugPrint('ToroCorp Music: permiso de micrófono no concedido.');
+        debugPrint('ToroCorp Music: Permiso de micrófono no otorgado');
         return false;
       }
 
       _isRunning = true;
+      _calibrationFrames = 0;
+      _ambientFloorDb = -60.0;
 
-      // Iniciar grabación de stream para habilitar el canal de audio.
-      // Usamos el grabador solo para mantener el micro abierto y leer amplitud.
+      // 3. Crear archivo temporal en caché para MediaRecorder (100% compatible Android/iOS)
+      String cachePath = '';
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final cacheFile = File('${tempDir.path}/toro_mic_karaoke.m4a');
+        if (await cacheFile.exists()) {
+          try {
+            await cacheFile.delete();
+          } catch (_) {}
+        }
+        cachePath = cacheFile.path;
+      } catch (_) {
+        cachePath = '';
+      }
+
       const config = RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: 16000,
+        encoder: AudioEncoder.aacLc,
+        sampleRate: 44100,
         numChannels: 1,
       );
-      // startStream mantiene el canal de audio abierto sin guardar archivo.
-      final stream = await _audioRecorder.startStream(config);
-      // Descartamos el stream de bytes; usamos onAmplitudeChanged.
-      stream.listen((_) {}, onError: (_) {});
 
-      // Leer amplitud cada 80 ms — frecuencia suficiente para karaoke fluido.
+      // Iniciar sesión de grabación
+      if (cachePath.isNotEmpty) {
+        await _audioRecorder.start(config, path: cachePath);
+      } else {
+        await _audioRecorder.start(config, path: '');
+      }
+
+      // 4. Monitorear amplitud cada 50 milisegundos para latencia ultra baja
       _amplitudeSubscription = _audioRecorder
-          .onAmplitudeChanged(const Duration(milliseconds: 80))
-          .listen(_handleAmplitude);
+          .onAmplitudeChanged(const Duration(milliseconds: 50))
+          .listen(
+        _handleAmplitude,
+        onError: (err) {
+          debugPrint('ToroCorp Music: Error en amplitud: $err');
+        },
+      );
 
-      debugPrint('ToroCorp Music: motor de karaoke acústico activo.');
+      debugPrint('ToroCorp Music: Motor acústico iniciado exitosamente');
       return true;
     } catch (e) {
-      debugPrint('ToroCorp Music: error al iniciar karaoke acústico: $e');
+      debugPrint('ToroCorp Music: Error al iniciar motor acústico: $e');
       _isRunning = false;
       return false;
     }
   }
 
-  // ── Procesado de amplitud ─────────────────────────────────────────────────
-
   void _handleAmplitude(Amplitude amp) {
     final double db = amp.current;
-    final bool hasVoice = db > silenceThresholdDb;
+
+    // Calibración adaptativa inicial del piso de ruido de la habitación
+    if (_calibrationFrames < _maxCalibrationFrames && db > -100.0) {
+      _calibrationFrames++;
+      if (db > _ambientFloorDb) {
+        _ambientFloorDb = db;
+      }
+      return;
+    }
+
+    // El umbral efectivo toma en cuenta el ruido de la habitación y el ajuste del usuario
+    final double effectiveThreshold = math.max(_ambientFloorDb + 5.0, silenceThresholdDb);
+    final bool hasVoice = db > effectiveThreshold;
 
     if (hasVoice) {
       _voiceFrames++;
@@ -156,27 +209,27 @@ class AcousticVocalKaraokeService {
     }
 
     if (!_confirmedSinging && _voiceFrames >= _voiceConfirmFrames) {
-      // Transición: silencio → cantando
+      // Transición: silencio -> cantando
       _confirmedSinging = true;
       _wordStartTime ??= DateTime.now();
-      _emitSinging(db);
+      _emitSinging(db, effectiveThreshold);
     } else if (_confirmedSinging && _silenceFrames >= _silenceConfirmFrames) {
-      // Transición: cantando → silencio / pausa
+      // Transición: cantando -> pausa o requinto de guitarra
       _confirmedSinging = false;
       _wordStartTime = null;
       _emitWaiting(db);
     } else if (_confirmedSinging) {
-      // Sigue cantando: evaluar si ya es hora de avanzar la palabra.
-      _tryAdvanceWord(db);
+      // Continúa cantando: evaluar avance de sílabas
+      _tryAdvanceWord(db, effectiveThreshold);
     }
   }
 
-  void _emitSinging(double db) {
+  void _emitSinging(double db, double threshold) {
     _state = _state.copyWith(
       isSinging: true,
       isWaitingForVoice: false,
       volumeDb: db,
-      vocalEnergy: _normalizeEnergy(db),
+      vocalEnergy: _normalizeEnergy(db, threshold),
     );
     _stateController.add(_state);
   }
@@ -191,32 +244,28 @@ class AcousticVocalKaraokeService {
     _stateController.add(_state);
   }
 
-  void _tryAdvanceWord(double db) {
-    // Actualizar estado visual (sigue iluminado)
+  void _tryAdvanceWord(double db, double threshold) {
     _state = _state.copyWith(
       isSinging: true,
       isWaitingForVoice: false,
       volumeDb: db,
-      vocalEnergy: _normalizeEnergy(db),
+      vocalEnergy: _normalizeEnergy(db, threshold),
     );
     _stateController.add(_state);
 
-    // Calcular cuánto tiempo llevamos cantando la palabra actual.
     final now = DateTime.now();
     final heldMs = _wordStartTime != null
         ? now.difference(_wordStartTime!).inMilliseconds
         : 0;
 
-    // Estimar duración esperada de la palabra según su longitud.
     final int targetMs = _wordDurationMs();
 
     if (heldMs >= targetMs) {
       _advanceWord();
-      _wordStartTime = now; // Reiniciar temporizador para la siguiente palabra
+      _wordStartTime = now;
     }
   }
 
-  /// Estima la duración (ms) que se debería cantar la palabra actual.
   int _wordDurationMs() {
     final lines = song.lines;
     if (lines.isEmpty) return _minWordHoldMs;
@@ -225,10 +274,8 @@ class AcousticVocalKaraokeService {
     if (tokens.isEmpty) return _minWordHoldMs;
     final wordIdx = _state.wordIndex.clamp(0, tokens.length - 1);
     final word = tokens[wordIdx].word.replaceAll(RegExp(r'[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]'), '');
-    // Aproximación de sílabas: ~1 sílaba cada 2 caracteres vocálicos.
     final int syllables = _countSyllables(word);
-    // Cada sílaba cantada dura aprox 250-400 ms.
-    return (syllables * 300).clamp(_minWordHoldMs, _maxWordHoldMs);
+    return (syllables * 280).clamp(_minWordHoldMs, _maxWordHoldMs);
   }
 
   int _countSyllables(String word) {
@@ -248,12 +295,10 @@ class AcousticVocalKaraokeService {
     if (line >= lines.length) return;
 
     if (word >= lines[line].tokens.length) {
-      // Fin de verso: pasar al siguiente.
       if (line + 1 < lines.length) {
         line++;
         word = 0;
       } else {
-        // Última palabra: quedarse aquí.
         return;
       }
     }
@@ -267,11 +312,25 @@ class AcousticVocalKaraokeService {
     _stateController.add(_state);
   }
 
-  double _normalizeEnergy(double db) {
-    return ((db - silenceThresholdDb) / (0.0 - silenceThresholdDb)).clamp(0.0, 1.0);
+  double _normalizeEnergy(double db, double threshold) {
+    return ((db - threshold) / (0.0 - threshold)).clamp(0.0, 1.0);
   }
 
-  // ── Control manual (toque en pantalla) ───────────────────────────────────
+  /// Salto directo a línea y palabra si el usuario toca la pantalla
+  void jumpTo(int line, int word) {
+    final lines = song.lines;
+    if (lines.isEmpty) return;
+    final validLine = line.clamp(0, lines.length - 1);
+    final validWord = word.clamp(0, lines[validLine].tokens.length - 1);
+    _wordStartTime = DateTime.now();
+    _state = _state.copyWith(
+      lineIndex: validLine,
+      wordIndex: validWord,
+      isSinging: false,
+      isWaitingForVoice: true,
+    );
+    _stateController.add(_state);
+  }
 
   void nextWordManual() {
     _wordStartTime = DateTime.now();
@@ -290,7 +349,12 @@ class AcousticVocalKaraokeService {
       }
     }
     _wordStartTime = DateTime.now();
-    _state = _state.copyWith(lineIndex: line, wordIndex: word, isSinging: false, isWaitingForVoice: true);
+    _state = _state.copyWith(
+      lineIndex: line,
+      wordIndex: word,
+      isSinging: false,
+      isWaitingForVoice: true,
+    );
     _stateController.add(_state);
   }
 
@@ -306,6 +370,9 @@ class AcousticVocalKaraokeService {
   Future<void> dispose() async {
     _isRunning = false;
     await _amplitudeSubscription?.cancel();
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
     await _audioRecorder.dispose();
     await _stateController.close();
   }

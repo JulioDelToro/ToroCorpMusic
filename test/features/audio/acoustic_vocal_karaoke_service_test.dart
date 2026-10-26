@@ -16,6 +16,21 @@ void main() {
         if (methodCall.method == 'hasPermission') return true;
         if (methodCall.method == 'dispose') return null;
         if (methodCall.method == 'stop') return null;
+        if (methodCall.method == 'start') return null;
+        return null;
+      },
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (MethodCall methodCall) async {
+        return '.';
+      },
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.ryanheise.audio_session'),
+      (MethodCall methodCall) async {
         return null;
       },
     );
