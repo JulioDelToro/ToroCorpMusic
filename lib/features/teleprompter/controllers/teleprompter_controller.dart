@@ -43,6 +43,15 @@ class TeleprompterController extends ChangeNotifier {
   double get volumeDb => _volumeDb;
   double get vocalEnergy => _vocalEnergy;
 
+  /// Retorna el índice global absoluto de la palabra activa en toda la canción
+  int get globalActiveWordIndex {
+    int count = 0;
+    for (int l = 0; l < _activeLineIndex && l < _song.lines.length; l++) {
+      count += _song.lines[l].tokens.length;
+    }
+    return count + _activeWordIndex;
+  }
+
   void updateSong(SongScript newSong) {
     _song = newSong;
     _activeLineIndex = 0;
@@ -84,6 +93,22 @@ class TeleprompterController extends ChangeNotifier {
     _activeWordIndex = wordIndex;
     acousticService?.jumpTo(lineIndex, wordIndex);
     notifyListeners();
+  }
+
+  /// Salta a una palabra usando su índice global plano en toda la canción
+  void jumpToGlobalWord(int globalIndex) {
+    int remaining = globalIndex;
+    for (int l = 0; l < _song.lines.length; l++) {
+      final len = _song.lines[l].tokens.length;
+      if (remaining < len) {
+        jumpTo(l, remaining);
+        return;
+      }
+      remaining -= len;
+    }
+    if (_song.lines.isNotEmpty) {
+      jumpTo(_song.lines.length - 1, _song.lines.last.tokens.length - 1);
+    }
   }
 
   void nextWord() {

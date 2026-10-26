@@ -22,7 +22,7 @@ import '../../scripts/models/song_script.dart';
 import '../../scripts/services/chordpro_parser.dart';
 import '../../scripts/services/pdf_script_extractor.dart';
 import '../../teleprompter/controllers/teleprompter_controller.dart';
-import '../../teleprompter/widgets/teleprompter_bar_widget.dart';
+import '../../teleprompter/widgets/floating_teleprompter_capsule.dart';
 import '../../tuner/models/tuning_note.dart';
 import '../../tuner/services/pitch_detector.dart';
 import '../../tuner/widgets/guitar_tuner_widget.dart';
@@ -166,14 +166,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       duration: const Duration(milliseconds: 250),
     );
 
-    // CanciÃ³n inicial con acordes inferiores
+    // Canción inicial con acordes inferiores
     _currentSong = const SongScript(
-      title: 'De MÃºsica Ligera',
+      title: 'De Música Ligera',
       artist: 'Soda Stereo',
       lines: [
         LyricLine(tokens: [
           LyricToken(word: 'De', chordUnderneath: null),
-          LyricToken(word: 'mÃºsica', chordUnderneath: 'G'),
+          LyricToken(word: 'música', chordUnderneath: 'G'),
           LyricToken(word: 'ligera...', chordUnderneath: 'D'),
         ]),
         LyricLine(tokens: [
@@ -181,8 +181,24 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
           LyricToken(word: 'nos', chordUnderneath: null),
           LyricToken(word: 'libra,', chordUnderneath: 'C'),
           LyricToken(word: 'nada', chordUnderneath: 'G'),
-          LyricToken(word: 'mÃ¡s', chordUnderneath: 'D'),
+          LyricToken(word: 'más', chordUnderneath: 'D'),
           LyricToken(word: 'queda...', chordUnderneath: null),
+        ]),
+        LyricLine(tokens: [
+          LyricToken(word: 'No', chordUnderneath: 'Em'),
+          LyricToken(word: 'le', chordUnderneath: null),
+          LyricToken(word: 'enviaré', chordUnderneath: 'C'),
+          LyricToken(word: 'cenizas', chordUnderneath: 'G'),
+          LyricToken(word: 'de', chordUnderneath: null),
+          LyricToken(word: 'rosas,', chordUnderneath: 'D'),
+        ]),
+        LyricLine(tokens: [
+          LyricToken(word: 'ni', chordUnderneath: null),
+          LyricToken(word: 'pienso', chordUnderneath: 'Em'),
+          LyricToken(word: 'evitar', chordUnderneath: 'C'),
+          LyricToken(word: 'un', chordUnderneath: null),
+          LyricToken(word: 'roce', chordUnderneath: 'G'),
+          LyricToken(word: 'secreto...', chordUnderneath: 'D'),
         ]),
       ],
     );
@@ -1011,59 +1027,60 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             isCameraActive: _isCameraActive,
           ),
 
-          // 2. Teleprompter Anclado Inmediatamente Debajo del Lente de la CÃ¡mara
+          // 2. Cápsula Flotante Teleprompter "Dynamic Island" pegada bajo la cámara frontal
           Positioned(
-            top: 0,
+            top: MediaQuery.of(context).padding.top + 8,
             left: 0,
             right: 0,
-            child: SafeArea(
-              bottom: false,
+            child: Center(
               child: AnimatedBuilder(
                 animation: _teleprompterController,
                 builder: (context, _) {
-                  return TeleprompterBarWidget(
-                    song: _teleprompterController.song,
-                    activeLineIndex: _teleprompterController.activeLineIndex,
-                    activeWordIndex: _teleprompterController.activeWordIndex,
-                    isMirrorMode: _isMirrorMode,
-                    fontSize: _teleprompterController.fontSize,
-                    highlightColor: _karaokeHighlightColor,
+                  return FloatingTeleprompterCapsule(
+                    tokens: _teleprompterController.song.allTokens,
+                    currentWordIndex: _teleprompterController.globalActiveWordIndex,
                     isSinging: _teleprompterController.isSinging,
                     isWaitingForVoice: _teleprompterController.isWaitingForVoice,
-                    onResetTap: _teleprompterController.reset,
-                    onWordTap: (lineIdx, wordIdx) {
-                      _teleprompterController.jumpTo(lineIdx, wordIdx);
+                    isRecording: _isRecording,
+                    recordingSeconds: _recordingSeconds,
+                    highlightColor: _karaokeHighlightColor,
+                    onSettingsTap: _toggleMenu,
+                    onWordTap: (globalIndex) {
+                      _teleprompterController.jumpToGlobalWord(globalIndex);
                     },
-                    onNextTap: _teleprompterController.nextWord,
-                    onPrevTap: _teleprompterController.previousWord,
+                    onResetTap: _teleprompterController.reset,
                   );
                 },
               ),
             ),
           ),
 
-          // 3. BotÃ³n de MenÃº Superior Derecho (â˜° <-> âœ•)
+          // 3. Botón de Menú Superior Derecho (☰ <-> ✕)
           Positioned(
-            top: 16,
-            right: 16,
-            child: SafeArea(
-              child: GestureDetector(
-                onTap: _toggleMenu,
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withAlpha(200),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.borderDark, width: 1.5),
-                  ),
-                  child: Center(
-                    child: AnimatedIcon(
-                      icon: AnimatedIcons.menu_close,
-                      progress: _menuAnimationController,
-                      color: AppColors.textWhite,
-                      size: 24,
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 12,
+            child: GestureDetector(
+              onTap: _toggleMenu,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.black.withAlpha(200),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.borderDark, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(120),
+                      blurRadius: 10,
                     ),
+                  ],
+                ),
+                child: Center(
+                  child: AnimatedIcon(
+                    icon: AnimatedIcons.menu_close,
+                    progress: _menuAnimationController,
+                    color: AppColors.textWhite,
+                    size: 22,
                   ),
                 ),
               ),
