@@ -17,6 +17,7 @@ dependencies:
   permission_handler: ^11.3.1
   speech_to_text: ^7.0.0
   gal: ^2.3.3
+  record: ^7.1.2
 
 dev_dependencies:
   flutter_test:

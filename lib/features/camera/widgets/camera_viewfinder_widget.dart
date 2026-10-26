@@ -5,16 +5,16 @@ import '../../../core/constants/app_typography.dart';
 import '../services/beauty_shader_service.dart';
 import '../services/hands_free_trigger_service.dart';
 
-/// Visor de la cámara con relación de aspecto nativa (9:16, 16:9, 1:1, 4:5),
-/// sin estiramiento de imagen, soporte para modo espejo y cuenta regresiva manos libres.
+/// Visor de la cámara limpio y minimalista con relación de aspecto nativa (9:16, 16:9, 1:1, 4:5),
+/// sin estiramiento de imagen, soporte para modo espejo y pantalla limpia sin botones invasivos.
 class CameraViewfinderWidget extends StatelessWidget {
   final Widget? cameraPreview;
   final BeautyShaderService beautyService;
   final HandsFreeTriggerService triggerService;
   final bool isRecording;
-  final bool showBeautySlider;
   final bool isMirrorMode;
   final double aspectRatio;
+  final bool isCameraActive;
 
   const CameraViewfinderWidget({
     super.key,
@@ -22,9 +22,9 @@ class CameraViewfinderWidget extends StatelessWidget {
     required this.beautyService,
     required this.triggerService,
     this.isRecording = false,
-    this.showBeautySlider = false,
     this.isMirrorMode = false,
     this.aspectRatio = 9 / 16,
+    this.isCameraActive = true,
   });
 
   @override
@@ -34,12 +34,12 @@ class CameraViewfinderWidget extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Previsualización de la cámara con encuadre nativo y sin distorsión
+          // 1. Previsualización de la cámara con encuadre nativo y sin distorsión
           Center(
             child: AspectRatio(
               aspectRatio: aspectRatio,
               child: ClipRect(
-                child: cameraPreview != null
+                child: isCameraActive && cameraPreview != null
                     ? FittedBox(
                         fit: BoxFit.cover,
                         child: SizedBox(
@@ -55,21 +55,40 @@ class CameraViewfinderWidget extends StatelessWidget {
                         ),
                       )
                     : Container(
-                        color: const Color(0xFF0A0A0C),
+                        color: const Color(0xFF070709),
                         child: Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.videocam_outlined, size: 54, color: AppColors.borderDark),
-                              const SizedBox(height: 12),
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: Colors.black,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: AppColors.borderDark, width: 2),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.chordAmber.withAlpha(40),
+                                      blurRadius: 20,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.mic,
+                                  size: 38,
+                                  color: AppColors.chordAmber,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               Text(
-                                'Visor ToroCorp Music',
-                                style: AppTypography.sfProHeadline(fontSize: 16),
+                                isCameraActive ? 'Conectando Cámara...' : 'Modo Solo Karaoke / Audio',
+                                style: AppTypography.sfProHeadline(fontSize: 16, color: AppColors.textWhite),
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'Formato: ${_getFormatName(aspectRatio)}',
-                                style: AppTypography.sfProCaption(),
+                                'El micrófono sigue tu voz en tiempo real',
+                                style: AppTypography.sfProCaption(color: AppColors.textSecondary),
                               ),
                             ],
                           ),
@@ -79,93 +98,17 @@ class CameraViewfinderWidget extends StatelessWidget {
             ),
           ),
 
-          // Control deslizante de filtro de belleza
-          if (showBeautySlider)
-            Positioned(
-              right: 16,
-              top: 140,
-              child: AnimatedBuilder(
-                animation: beautyService,
-                builder: (context, _) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withAlpha(220),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: AppColors.borderDark),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.auto_fix_high, color: AppColors.chordAmber, size: 20),
-                        const SizedBox(height: 8),
-                        RotatedBox(
-                          quarterTurns: 3,
-                          child: SizedBox(
-                            width: 130,
-                            child: Slider(
-                              value: beautyService.intensity,
-                              min: 0.0,
-                              max: 1.0,
-                              activeColor: AppColors.chordAmber,
-                              inactiveColor: AppColors.borderDark,
-                              onChanged: beautyService.setIntensity,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '${(beautyService.intensity * 100).toInt()}%',
-                          style: AppTypography.sfProCaption(fontSize: 11, color: AppColors.textWhite),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-
-          // Botón accesible de prueba rápida de Manos Libres
-          Positioned(
-            left: 16,
-            bottom: 120,
-            child: GestureDetector(
-              onTap: () {
-                triggerService.triggerFromPalmGesture();
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(200),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.borderDark),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.front_hand, size: 16, color: AppColors.chordAmber),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Disparador Palma / Voz',
-                      style: AppTypography.sfProCaption(fontSize: 11, color: AppColors.textWhite),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Animación de cuenta regresiva manos libres (3... 2... 1...)
+          // 2. Animación de cuenta regresiva manos libres (3... 2... 1...)
           if (triggerService.isCountingDown)
             Container(
-              color: Colors.black.withAlpha(200),
+              color: Colors.black.withAlpha(220),
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       '${triggerService.countdownSeconds}',
-                      style: AppTypography.sfProLyricStyle(fontSize: 108, color: AppColors.textWhite),
+                      style: AppTypography.sfProLyricStyle(fontSize: 110, color: AppColors.textWhite),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -177,7 +120,7 @@ class CameraViewfinderWidget extends StatelessWidget {
               ),
             ),
 
-          // Indicador de estado de grabación
+          // 3. Indicador de estado de grabación
           if (isRecording)
             Positioned(
               top: 16,
@@ -188,6 +131,12 @@ class CameraViewfinderWidget extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: AppColors.recordRed,
                     borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.recordRed.withAlpha(120),
+                        blurRadius: 10,
+                      ),
+                    ],
                   ),
                   child: Row(
                     children: [
@@ -205,13 +154,5 @@ class CameraViewfinderWidget extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _getFormatName(double ratio) {
-    if ((ratio - (9 / 16)).abs() < 0.05) return '9:16 Vertical';
-    if ((ratio - (16 / 9)).abs() < 0.05) return '16:9 Horizontal';
-    if ((ratio - 1.0).abs() < 0.05) return '1:1 Cuadrado';
-    if ((ratio - 0.8).abs() < 0.05) return '4:5 Retrato';
-    return '${ratio.toStringAsFixed(2)} Aspecto';
   }
 }
