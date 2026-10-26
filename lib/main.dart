@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
+import 'features/splash/presentation/splash_video_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,8 +16,29 @@ void main() {
   runApp(const ToroMusicApp());
 }
 
-class ToroMusicApp extends StatelessWidget {
-  const ToroMusicApp({super.key});
+class ToroMusicApp extends StatefulWidget {
+  final bool showSplash;
+
+  const ToroMusicApp({super.key, this.showSplash = true});
+
+  @override
+  State<ToroMusicApp> createState() => _ToroMusicAppState();
+}
+
+class _ToroMusicAppState extends State<ToroMusicApp> {
+  late bool _splashFinished;
+
+  @override
+  void initState() {
+    super.initState();
+    _splashFinished = !widget.showSplash;
+  }
+
+  void _onSplashFinished() {
+    setState(() {
+      _splashFinished = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,11 +48,13 @@ class ToroMusicApp extends StatelessWidget {
       themeMode: ThemeMode.dark,
       theme: AppTheme.darkOledTheme,
       darkTheme: AppTheme.darkOledTheme,
-      home: const Scaffold(
-        body: Center(
-          child: Text('Toro Music Teleprompter'),
-        ),
-      ),
+      home: _splashFinished
+          ? const Scaffold(
+              body: Center(
+                child: Text('Toro Music Studio'),
+              ),
+            )
+          : SplashVideoScreen(onFinished: _onSplashFinished),
     );
   }
 }
