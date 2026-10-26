@@ -58,6 +58,17 @@ class SavedSong {
       final trimmed = rawLine.trim();
       if (trimmed.isEmpty) continue;
 
+      if (ChordProParser.isInstrumentalTag(trimmed)) {
+        final cleanTag = trimmed.replaceAll(RegExp(r'[\[\]\(\)\-\*]'), '').trim().toUpperCase();
+        final displayLabel = cleanTag.contains('🎸') ? cleanTag : '🎸 $cleanTag';
+        parsedLines.add(LyricLine(
+          tokens: [LyricToken(word: displayLabel)],
+          isInstrumental: true,
+          instrumentalLabel: displayLabel,
+        ));
+        continue;
+      }
+
       final words = trimmed.split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
       final tokens = words.map((w) => LyricToken(word: w)).toList();
       if (tokens.isNotEmpty) {

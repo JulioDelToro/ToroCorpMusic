@@ -6,7 +6,7 @@ import '../../audio/services/vocal_alignment_matcher.dart';
 import '../../scripts/models/song_script.dart';
 
 /// Controlador de estado para el teleprompter anclado a la cámara.
-/// Soporta tanto alineación acústica por VAD en tiempo real como alineación por palabras reconocidas.
+/// Soporta alineación acústica con rechazo anti-guitarra, pausas de requinto y alineación fonética por palabras.
 class TeleprompterController extends ChangeNotifier {
   SongScript _song;
   final VocalAlignmentMatcher? matcher;
@@ -23,6 +23,8 @@ class TeleprompterController extends ChangeNotifier {
   bool _isWaitingForVoice = true;
   double _volumeDb = -60.0;
   double _vocalEnergy = 0.0;
+  bool _isInstrumentalBreak = false;
+  String? _instrumentalLabel;
 
   TeleprompterController({
     required SongScript initialSong,
@@ -42,6 +44,10 @@ class TeleprompterController extends ChangeNotifier {
   bool get isWaitingForVoice => _isWaitingForVoice;
   double get volumeDb => _volumeDb;
   double get vocalEnergy => _vocalEnergy;
+  bool get isInstrumentalBreak =>
+      _isInstrumentalBreak || (currentLine?.isInstrumental ?? false);
+  String? get instrumentalLabel =>
+      _instrumentalLabel ?? currentLine?.instrumentalLabel;
 
   /// Retorna la línea actual que se está leyendo o null si no hay canción
   LyricLine? get currentLine =>
@@ -70,6 +76,8 @@ class TeleprompterController extends ChangeNotifier {
     _activeWordIndex = 0;
     _isSinging = false;
     _isWaitingForVoice = true;
+    _isInstrumentalBreak = false;
+    _instrumentalLabel = null;
     notifyListeners();
   }
 
@@ -77,6 +85,9 @@ class TeleprompterController extends ChangeNotifier {
     _activeLineIndex = state.currentLineIndex;
     _activeWordIndex = state.currentWordIndex;
     _isSinging = state.isSinging;
+    _isInstrumentalBreak = false;
+    _instrumentalLabel = null;
+    acousticService?.syncMatchedWord(state.currentLineIndex, state.currentWordIndex);
     notifyListeners();
   }
 
@@ -87,6 +98,8 @@ class TeleprompterController extends ChangeNotifier {
     _isWaitingForVoice = state.isWaitingForVoice;
     _volumeDb = state.volumeDb;
     _vocalEnergy = state.vocalEnergy;
+    _isInstrumentalBreak = state.isInstrumentalBreak;
+    _instrumentalLabel = state.instrumentalLabel;
     notifyListeners();
   }
 
@@ -103,6 +116,8 @@ class TeleprompterController extends ChangeNotifier {
   void jumpTo(int lineIndex, int wordIndex) {
     _activeLineIndex = lineIndex;
     _activeWordIndex = wordIndex;
+    _isInstrumentalBreak = false;
+    _instrumentalLabel = null;
     acousticService?.jumpTo(lineIndex, wordIndex);
     notifyListeners();
   }
@@ -112,11 +127,33 @@ class TeleprompterController extends ChangeNotifier {
     jumpTo(_activeLineIndex, wordIndex);
   }
 
-  /// Salta a la primera palabra de la línea siguiente
+  /// Salta a la primera palabra de la línea siguiente o reanuda tras requinto
   void jumpToNextLine() {
     if (_activeLineIndex + 1 < _song.lines.length) {
       jumpTo(_activeLineIndex + 1, 0);
     }
+  }
+
+  /// Reanuda el teleprompter inmediatamente si está en un requinto o solo instrumental
+  void resumeFromInstrumental() {
+    _isInstrumentalBreak = false;
+    _instrumentalLabel = null;
+    acousticService?.resumeFromInstrumental();
+    if (currentLine?.isInstrumental ?? false) {
+      jumpToNextLine();
+    } else {
+      notifyListeners();
+    }
+  }
+
+  /// Procesa una palabra reconocida para alimentar el reconocedor fonético
+  void processSpokenWord(String word) {
+    matcher?.processSpokenWord(word);
+  }
+
+  /// Procesa una frase reconocida continuamente para alimentar el reconocedor fonético
+  void processUtterance(String utterance) {
+    matcher?.processUtterance(utterance);
   }
 
   /// Salta a una palabra usando su índice global plano en toda la canción
@@ -148,6 +185,8 @@ class TeleprompterController extends ChangeNotifier {
     _activeWordIndex = 0;
     _isSinging = false;
     _isWaitingForVoice = true;
+    _isInstrumentalBreak = false;
+    _instrumentalLabel = null;
     acousticService?.reset();
     notifyListeners();
   }

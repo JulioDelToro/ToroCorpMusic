@@ -238,35 +238,79 @@ class _FloatingTeleprompterCapsuleState
                       ),
                     ),
                   )
-                : SingleChildScrollView(
-                    controller: _scrollController,
-                    physics: const ClampingScrollPhysics(),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ── FILA 1: Línea que voy leyendo ──
-                        // Las palabras que ya leí se ponen en color
-                        _buildLineRow(
-                          line: currentLine,
-                          activeWordIndex: widget.currentWordIndex,
-                          isCurrentLine: true,
-                          onWordTap: widget.onWordTap,
+                : currentLine.isInstrumental
+                    ? GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: widget.onNextLineTap,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.chordAmber.withAlpha(28),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.chordAmber.withAlpha(140), width: 1.0),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.music_note, color: AppColors.chordAmber, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      currentLine.instrumentalLabel ?? '🎸 REQUINTO EN CURSO',
+                                      style: const TextStyle(
+                                        color: AppColors.chordAmber,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.6,
+                                      ),
+                                    ),
+                                    const Text(
+                                      'Toca aquí para iniciar el siguiente verso',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 9.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.skip_next, color: Colors.white70, size: 18),
+                            ],
+                          ),
                         ),
+                      )
+                    : SingleChildScrollView(
+                        controller: _scrollController,
+                        physics: const ClampingScrollPhysics(),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ── FILA 1: Línea que voy leyendo ──
+                            // Las palabras que ya leí se ponen en color
+                            _buildLineRow(
+                              line: currentLine,
+                              activeWordIndex: widget.currentWordIndex,
+                              isCurrentLine: true,
+                              onWordTap: widget.onWordTap,
+                            ),
 
-                        const SizedBox(height: 5),
+                            const SizedBox(height: 5),
 
-                        // ── FILA 2: Línea siguiente que sigue para leer ──
-                        _buildLineRow(
-                          line: widget.nextLine,
-                          activeWordIndex: -1,
-                          isCurrentLine: false,
-                          onWordTap: (_) => widget.onNextLineTap?.call(),
+                            // ── FILA 2: Línea siguiente que sigue para leer ──
+                            _buildLineRow(
+                              line: widget.nextLine,
+                              activeWordIndex: -1,
+                              isCurrentLine: false,
+                              onWordTap: (_) => widget.onNextLineTap?.call(),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
+                      ),
           ),
 
           // ── 3. Botón de Menú Hamburguesa (☰ <-> ✕) Integrado en la Cápsula ──
@@ -328,6 +372,21 @@ class _FloatingTeleprompterCapsuleState
         );
       }
       return const SizedBox.shrink();
+    }
+
+    if (!isCurrentLine && line.isInstrumental) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(
+          '[ ${line.instrumentalLabel ?? '🎸 REQUINTO / SOLO'} ]',
+          style: const TextStyle(
+            color: AppColors.chordAmber,
+            fontSize: 11.5,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+      );
     }
 
     return Wrap(

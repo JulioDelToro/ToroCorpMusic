@@ -16,6 +16,8 @@ class AcousticKaraokeState {
   final double volumeDb;
   final bool isWaitingForVoice;
   final double vocalEnergy;
+  final bool isInstrumentalBreak;
+  final String? instrumentalLabel;
 
   const AcousticKaraokeState({
     this.lineIndex = 0,
@@ -24,6 +26,8 @@ class AcousticKaraokeState {
     this.volumeDb = -60.0,
     this.isWaitingForVoice = true,
     this.vocalEnergy = 0.0,
+    this.isInstrumentalBreak = false,
+    this.instrumentalLabel,
   });
 
   AcousticKaraokeState copyWith({
@@ -33,6 +37,8 @@ class AcousticKaraokeState {
     double? volumeDb,
     bool? isWaitingForVoice,
     double? vocalEnergy,
+    bool? isInstrumentalBreak,
+    String? instrumentalLabel,
   }) {
     return AcousticKaraokeState(
       lineIndex: lineIndex ?? this.lineIndex,
@@ -41,6 +47,8 @@ class AcousticKaraokeState {
       volumeDb: volumeDb ?? this.volumeDb,
       isWaitingForVoice: isWaitingForVoice ?? this.isWaitingForVoice,
       vocalEnergy: vocalEnergy ?? this.vocalEnergy,
+      isInstrumentalBreak: isInstrumentalBreak ?? this.isInstrumentalBreak,
+      instrumentalLabel: instrumentalLabel ?? this.instrumentalLabel,
     );
   }
 }
@@ -49,11 +57,10 @@ class AcousticKaraokeState {
 /// 
 /// Características:
 /// 1. Compatible con AudioSession (evita que el sistema operativo o la cámara silencien el micrófono).
-/// 2. Captura estable mediante MediaRecorder nativo en caché temporal.
-/// 3. Calibración automática del piso de ruido ambiental (adaptive noise floor).
-/// 4. Espera paciente en pausas y requintos: si el cantante deja de cantar para tocar la guitarra,
-///    el teleprompter se congela inmediatamente en esa palabra exacta y espera pacientemente.
-/// 5. Avance natural por sílabas al cantar.
+/// 2. Filtro acústico anti-guitarra: discrimina transitorios de púa/cuerda para que el requinto no simule canto.
+/// 3. Soporte para secciones instrumentales ([Requinto] / [Solo]): congela el teleprompter y espera al músico.
+/// 4. Calibración automática del piso de ruido ambiental (adaptive noise floor).
+/// 5. Avance natural por sílabas al cantar sin rezagos.
 class AcousticVocalKaraokeService {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final StreamController<AcousticKaraokeState> _stateController =
@@ -72,6 +79,11 @@ class AcousticVocalKaraokeService {
   double _ambientFloorDb = -60.0;
   int _calibrationFrames = 0;
   static const int _maxCalibrationFrames = 15;
+
+  /// Filtro anti-guitarra: memoria del último cuadro de amplitud
+  double _lastDb = -100.0;
+  // ignore: unused_field
+  int _consecutivePluckFrames = 0;
 
   /// Muestras consecutivas para confirmar canto / pausa
   static const int _voiceConfirmFrames = 2; // ~60 ms para confirmar canto real sin falsos positivos
@@ -136,6 +148,8 @@ class AcousticVocalKaraokeService {
       _isRunning = true;
       _calibrationFrames = 0;
       _ambientFloorDb = -60.0;
+      _lastDb = -100.0;
+      _consecutivePluckFrames = 0;
 
       // 3. Crear archivo temporal en caché para MediaRecorder (100% compatible Android/iOS)
       String cachePath = '';
@@ -187,6 +201,9 @@ class AcousticVocalKaraokeService {
   void _handleAmplitude(Amplitude amp) {
     if (!_isRunning || _stateController.isClosed) return;
     final double db = amp.current;
+    final double maxDb = amp.max;
+    final double deltaDb = _lastDb > -99.0 ? (db - _lastDb) : 0.0;
+    _lastDb = db;
 
     // Calibración adaptativa inicial del piso de ruido de la habitación
     if (_calibrationFrames < _maxCalibrationFrames && db > -100.0) {
@@ -197,14 +214,26 @@ class AcousticVocalKaraokeService {
       return;
     }
 
+    // Filtro anti-guitarra: Un requinto / punteo de púa produce un ataque ultra-rápido (>8.5 dB en 30ms)
+    // con una cresta elevada (maxDb - db > 6 dB), seguido de caída abrupta.
+    // La voz humana cantada, en cambio, tiene un ataque suave y energía sostenida.
+    final bool isPluck = deltaDb > 8.5 && (maxDb - db) > 6.0;
+
     // El umbral efectivo toma en cuenta el ruido de la habitación y el ajuste optimizado
     final double effectiveThreshold = math.max(_ambientFloorDb + 8.0, silenceThresholdDb);
-    final bool hasVoice = db > effectiveThreshold;
+    final bool hasVoice = db > effectiveThreshold && !isPluck;
 
-    if (hasVoice) {
+    if (isPluck) {
+      _consecutivePluckFrames++;
+      // Ignorar punteos de cuerda / requinto para que no avancen la letra
+      _voiceFrames = 0;
+      _silenceFrames++;
+    } else if (hasVoice) {
+      _consecutivePluckFrames = 0;
       _voiceFrames++;
       _silenceFrames = 0;
     } else {
+      _consecutivePluckFrames = 0;
       _silenceFrames++;
       _voiceFrames = 0;
     }
@@ -254,6 +283,11 @@ class AcousticVocalKaraokeService {
     );
     _stateController.add(_state);
 
+    // Si estamos en pausa instrumental o requinto, congelar y esperar
+    if (_state.isInstrumentalBreak) {
+      return;
+    }
+
     final now = DateTime.now();
     _wordStartTime ??= now;
     final heldMs = now.difference(_wordStartTime!).inMilliseconds;
@@ -277,7 +311,6 @@ class AcousticVocalKaraokeService {
     final int syllables = _countSyllables(word);
 
     // Ritmo natural y fluido de canto: 320ms base + 110ms por sílaba extra
-    // Evita que el teleprompter se quede rezagado cuando el usuario canta de corrido
     int duration = 320 + (syllables - 1) * 110;
 
     // Con canto sostenido y enérgico, avanza ágilmente sin atrasarse
@@ -308,6 +341,22 @@ class AcousticVocalKaraokeService {
       if (line + 1 < lines.length) {
         line++;
         word = 0;
+
+        // Si la siguiente línea es una sección instrumental (Requinto / Solo), pausar inmediatamente:
+        if (lines[line].isInstrumental) {
+          _confirmedSinging = false;
+          _wordStartTime = null;
+          _state = _state.copyWith(
+            lineIndex: line,
+            wordIndex: 0,
+            isSinging: false,
+            isWaitingForVoice: true,
+            isInstrumentalBreak: true,
+            instrumentalLabel: lines[line].instrumentalLabel ?? '🎸 REQUINTO',
+          );
+          _stateController.add(_state);
+          return;
+        }
       } else {
         return;
       }
@@ -318,6 +367,56 @@ class AcousticVocalKaraokeService {
       wordIndex: word,
       isSinging: true,
       isWaitingForVoice: false,
+      isInstrumentalBreak: false,
+    );
+    _stateController.add(_state);
+  }
+
+  /// Reanuda el teleprompter después de un requinto o pausa instrumental
+  void resumeFromInstrumental() {
+    final lines = song.lines;
+    if (lines.isEmpty) return;
+
+    int targetLine = _state.lineIndex;
+    // Si la línea actual es instrumental, avanzar a la primera línea cantada
+    if (_state.isInstrumentalBreak || (targetLine < lines.length && lines[targetLine].isInstrumental)) {
+      while (targetLine < lines.length && lines[targetLine].isInstrumental) {
+        targetLine++;
+      }
+    }
+
+    if (targetLine >= lines.length) {
+      targetLine = lines.length - 1;
+    }
+
+    _wordStartTime = DateTime.now();
+    _state = _state.copyWith(
+      lineIndex: targetLine,
+      wordIndex: 0,
+      isSinging: false,
+      isWaitingForVoice: true,
+      isInstrumentalBreak: false,
+      instrumentalLabel: null,
+    );
+    _stateController.add(_state);
+  }
+
+  /// Sincroniza directamente la palabra cuando el reconocedor fonético confirma una coincidencia
+  void syncMatchedWord(int lineIndex, int wordIndex) {
+    final lines = song.lines;
+    if (lines.isEmpty) return;
+    final validLine = lineIndex.clamp(0, lines.length - 1);
+    final validWord = wordIndex.clamp(0, lines[validLine].tokens.length - 1);
+
+    final isInstr = lines[validLine].isInstrumental;
+    _wordStartTime = DateTime.now();
+    _state = _state.copyWith(
+      lineIndex: validLine,
+      wordIndex: validWord,
+      isSinging: true,
+      isWaitingForVoice: false,
+      isInstrumentalBreak: isInstr,
+      instrumentalLabel: isInstr ? (lines[validLine].instrumentalLabel ?? '🎸 REQUINTO') : null,
     );
     _stateController.add(_state);
   }
@@ -332,12 +431,16 @@ class AcousticVocalKaraokeService {
     if (lines.isEmpty) return;
     final validLine = line.clamp(0, lines.length - 1);
     final validWord = word.clamp(0, lines[validLine].tokens.length - 1);
+    final isInstr = lines[validLine].isInstrumental;
+
     _wordStartTime = DateTime.now();
     _state = _state.copyWith(
       lineIndex: validLine,
       wordIndex: validWord,
       isSinging: false,
       isWaitingForVoice: true,
+      isInstrumentalBreak: isInstr,
+      instrumentalLabel: isInstr ? (lines[validLine].instrumentalLabel ?? '🎸 REQUINTO') : null,
     );
     _stateController.add(_state);
   }
@@ -358,12 +461,15 @@ class AcousticVocalKaraokeService {
         word = 0;
       }
     }
+    final isInstr = line < song.lines.length && song.lines[line].isInstrumental;
     _wordStartTime = DateTime.now();
     _state = _state.copyWith(
       lineIndex: line,
       wordIndex: word,
       isSinging: false,
       isWaitingForVoice: true,
+      isInstrumentalBreak: isInstr,
+      instrumentalLabel: isInstr ? (song.lines[line].instrumentalLabel ?? '🎸 REQUINTO') : null,
     );
     _stateController.add(_state);
   }
@@ -373,6 +479,8 @@ class AcousticVocalKaraokeService {
     _silenceFrames = 0;
     _confirmedSinging = false;
     _wordStartTime = null;
+    _lastDb = -100.0;
+    _consecutivePluckFrames = 0;
     _state = const AcousticKaraokeState();
     _stateController.add(_state);
   }

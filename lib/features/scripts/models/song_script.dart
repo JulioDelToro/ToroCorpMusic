@@ -3,13 +3,19 @@ import 'lyric_token.dart';
 /// Representa una línea de texto con sus tokens y acordes correspondientes.
 class LyricLine {
   final List<LyricToken> tokens;
+  final bool isInstrumental;
+  final String? instrumentalLabel;
 
-  const LyricLine({required this.tokens});
+  const LyricLine({
+    required this.tokens,
+    this.isInstrumental = false,
+    this.instrumentalLabel,
+  });
 
   String get fullText => tokens.map((t) => t.word).join(' ');
 
   @override
-  String toString() => 'LyricLine(tokens: $tokens)';
+  String toString() => 'LyricLine(tokens: $tokens, isInstrumental: $isInstrumental)';
 }
 
 /// Representa una canción completa estructurada para el teleprompter.
