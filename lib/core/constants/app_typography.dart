@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 
 /// Tipografía oficial del ecosistema Apple (SF Pro & SF Mono)
-class AppTypography {
+abstract final class AppTypography {
   // Letras cantadas en el Teleprompter (SF Pro Bold / Heavy)
   static TextStyle sfProLyricStyle({double fontSize = 28, Color color = AppColors.textWhite}) {
     return GoogleFonts.inter(

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Paleta oficial de colores para Toro Music Teleprompter.
 /// Optimizado para pantallas OLED (ahorro de batería y máximo contraste).
-class AppColors {
+abstract final class AppColors {
   // Fondos OLED
   static const Color pureBlackOled = Color(0xFF000000);
   static const Color surfaceDark = Color(0xFF121212);

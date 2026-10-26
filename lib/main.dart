@@ -23,7 +23,9 @@ class ToroMusicApp extends StatelessWidget {
     return MaterialApp(
       title: 'Toro Music Teleprompter',
       debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.dark,
       theme: AppTheme.darkOledTheme,
+      darkTheme: AppTheme.darkOledTheme,
       home: const Scaffold(
         body: Center(
           child: Text('Toro Music Teleprompter'),
