@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:read_pdf_text/read_pdf_text.dart';
+
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../audio/services/acoustic_vocal_karaoke_service.dart';
@@ -17,7 +20,6 @@ import '../../monetization/services/subscription_service.dart';
 import '../../monetization/widgets/pro_upgrade_dialog.dart';
 import '../../recording/models/recording_mode.dart';
 import '../../recording/services/video_recording_compositor.dart';
-import '../../scripts/models/lyric_token.dart';
 import '../../scripts/models/song_script.dart';
 import '../../scripts/services/chordpro_parser.dart';
 import '../../scripts/services/pdf_script_extractor.dart';
@@ -28,7 +30,7 @@ import '../../tuner/services/pitch_detector.dart';
 import '../../tuner/widgets/guitar_tuner_widget.dart';
 import '../../tutorials/widgets/onboarding_tour_dialog.dart';
 
-/// Formatos de relaciÃ³n de aspecto de video
+/// Formatos de relación de aspecto de video
 enum FormatOption {
   vertical9_16(label: '9:16 Vertical', ratio: 9 / 16, subtitle: 'TikTok, Reels, Shorts'),
   horizontal16_9(label: '16:9 Horizontal', ratio: 16 / 9, subtitle: 'YouTube, Pantalla Completa'),
@@ -71,7 +73,7 @@ const List<QualityOption> kQualityOptions = [
   QualityOption(title: '4K Ultra HD (60 FPS)', resolution: '3840 x 2160', fps: 60, isPro: true, badge: 'Cine PRO'),
 ];
 
-/// Opciones de color para iluminaciÃ³n karaoke
+/// Opciones de color para iluminación karaoke
 class KaraokeColorOption {
   final String name;
   final Color color;
@@ -80,22 +82,22 @@ class KaraokeColorOption {
 }
 
 const List<KaraokeColorOption> kKaraokeColors = [
-  KaraokeColorOption('Amarillo NeÃ³n', Color(0xFFFFD60A)),
-  KaraokeColorOption('Verde NeÃ³n', Color(0xFF30D158)),
-  KaraokeColorOption('Cian ElÃ©ctrico', Color(0xFF64D2FF)),
-  KaraokeColorOption('Rosa NeÃ³n', Color(0xFFFF375F)),
+  KaraokeColorOption('Amarillo Neón', Color(0xFFFFD60A)),
+  KaraokeColorOption('Verde Neón', Color(0xFF30D158)),
+  KaraokeColorOption('Cian Eléctrico', Color(0xFF64D2FF)),
+  KaraokeColorOption('Rosa Neón', Color(0xFFFF375F)),
   KaraokeColorOption('Naranja Fuego', Color(0xFFFF9F0A)),
   KaraokeColorOption('Blanco Puro', Color(0xFFFFFFFF)),
 ];
 
-/// Pantalla principal de grabaciÃ³n musical de ToroCorp Music.
+/// Pantalla principal de grabación musical de ToroCorp Music.
 /// 
 /// Interfaz 100% limpia y minimalista:
-/// - Visor de cÃ¡mara sin botones flotantes ni estiramientos.
-/// - Teleprompter pegado inmediatamente debajo de la cÃ¡mara para contacto visual.
-/// - BotÃ³n rojo REC al centro inferior.
-/// - MenÃº desplegable OLED (â˜° <-> âœ•) arriba a la derecha con todas las herramientas.
-/// - Motor acÃºstico de karaoke continuo en tiempo real (sin bips ni desconexiones).
+/// - Visor de cámara sin botones flotantes ni estiramientos.
+/// - Teleprompter pegado inmediatamente debajo de la cámara para contacto visual.
+/// - Botón rojo REC al centro inferior.
+/// - Menú desplegable OLED (☰ <-> ✕) arriba a la derecha con todas las herramientas.
+/// - Motor acústico de karaoke continuo en tiempo real (sin bips ni desconexiones).
 class StudioRecordingScreen extends StatefulWidget {
   const StudioRecordingScreen({super.key});
 
@@ -113,33 +115,33 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   late final VideoRecordingCompositor _compositor;
   late final PitchDetector _pitchDetector;
 
-  // Controlador de CÃ¡mara
+  // Controlador de Cámara
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
-  bool _isCameraActive = true; // Permite activar o desactivar la cÃ¡mara (Modo solo Karaoke)
+  bool _isCameraActive = true; // Permite activar o desactivar la cámara (Modo solo Karaoke)
 
-  // Motor AcÃºstico de Karaoke en Tiempo Real (Continuo, sin bips ni desconexiones)
+  // Motor Acústico de Karaoke en Tiempo Real (Continuo, sin bips ni desconexiones)
   late AcousticVocalKaraokeService _acousticService;
 
-  // AnimaciÃ³n del MenÃº Hamburguesa (â˜° <-> âœ•)
+  // Animación del Menú Hamburguesa (☰ <-> ✕)
   late final AnimationController _menuAnimationController;
   bool _isMenuOpen = false;
 
-  // Estado del Teleprompter y CanciÃ³n
+  // Estado del Teleprompter y Canción
   late SongScript _currentSong;
   late VocalAlignmentMatcher _vocalMatcher;
   late TeleprompterController _teleprompterController;
 
-  // Preferencias de grabaciÃ³n seleccionables por el usuario
+  // Preferencias de grabación seleccionables por el usuario
   FormatOption _selectedFormat = FormatOption.vertical9_16;
   QualityOption _selectedQuality = kQualityOptions[1]; // 1080p 30fps default
-  Color _karaokeHighlightColor = const Color(0xFFFFD60A); // Amarillo NeÃ³n default
+  Color _karaokeHighlightColor = const Color(0xFFFFD60A); // Amarillo Neón default
 
-  // Sensibilidad del micrÃ³fono para el karaoke (-60 dB = muy sensible, -20 dB = poco sensible)
-  // El usuario puede ajustar este valor desde el menÃº.
+  // Sensibilidad del micrófono para el karaoke (-60 dB = muy sensible, -20 dB = poco sensible)
+  // El usuario puede ajustar este valor desde el menú.
   double _micSensitivityDb = -40.0;
 
-  // Estado de grabaciÃ³n y herramientas
+  // Estado de grabación y herramientas
   bool _isRecording = false;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
@@ -166,41 +168,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       duration: const Duration(milliseconds: 250),
     );
 
-    // Canción inicial con acordes inferiores
+    // Estado inicial limpio: sin guion precargado (el usuario escribe, pega o sube PDF)
     _currentSong = const SongScript(
-      title: 'De Música Ligera',
-      artist: 'Soda Stereo',
-      lines: [
-        LyricLine(tokens: [
-          LyricToken(word: 'De', chordUnderneath: null),
-          LyricToken(word: 'música', chordUnderneath: 'G'),
-          LyricToken(word: 'ligera...', chordUnderneath: 'D'),
-        ]),
-        LyricLine(tokens: [
-          LyricToken(word: 'Nada', chordUnderneath: 'Em'),
-          LyricToken(word: 'nos', chordUnderneath: null),
-          LyricToken(word: 'libra,', chordUnderneath: 'C'),
-          LyricToken(word: 'nada', chordUnderneath: 'G'),
-          LyricToken(word: 'más', chordUnderneath: 'D'),
-          LyricToken(word: 'queda...', chordUnderneath: null),
-        ]),
-        LyricLine(tokens: [
-          LyricToken(word: 'No', chordUnderneath: 'Em'),
-          LyricToken(word: 'le', chordUnderneath: null),
-          LyricToken(word: 'enviaré', chordUnderneath: 'C'),
-          LyricToken(word: 'cenizas', chordUnderneath: 'G'),
-          LyricToken(word: 'de', chordUnderneath: null),
-          LyricToken(word: 'rosas,', chordUnderneath: 'D'),
-        ]),
-        LyricLine(tokens: [
-          LyricToken(word: 'ni', chordUnderneath: null),
-          LyricToken(word: 'pienso', chordUnderneath: 'Em'),
-          LyricToken(word: 'evitar', chordUnderneath: 'C'),
-          LyricToken(word: 'un', chordUnderneath: null),
-          LyricToken(word: 'roce', chordUnderneath: 'G'),
-          LyricToken(word: 'secreto...', chordUnderneath: 'D'),
-        ]),
-      ],
+      title: '',
+      lines: [],
     );
 
     _vocalMatcher = VocalAlignmentMatcher(_currentSong);
@@ -276,26 +247,26 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         }
       }
     } catch (e) {
-      debugPrint('ToroCorp Music: Info cÃ¡mara: $e');
+      debugPrint('ToroCorp Music: Info cámara: $e');
     }
   }
 
-  /// Inicia el motor acÃºstico de karaoke continuo sin bips del sistema
+  /// Inicia el motor acústico de karaoke continuo sin bips del sistema
   Future<void> _startAcousticKaraoke() async {
     try {
       // Aplicar sensibilidad actual antes de arrancar
       _acousticService.silenceThresholdDb = _micSensitivityDb;
       final success = await _acousticService.startTracking();
-      debugPrint('ToroCorp Music: Seguimiento acÃºstico de voz iniciado: $success');
+      debugPrint('ToroCorp Music: Seguimiento acústico de voz iniciado: $success');
       if (mounted) {
         setState(() {});
       }
     } catch (e) {
-      debugPrint('ToroCorp Music: Error iniciando karaoke acÃºstico: $e');
+      debugPrint('ToroCorp Music: Error iniciando karaoke acústico: $e');
     }
   }
 
-  /// Activa o desactiva la cÃ¡mara manteniendo el micrÃ³fono encendido
+  /// Activa o desactiva la cámara manteniendo el micrófono encendido
   Future<void> _toggleCameraActive() async {
     setState(() {
       _isCameraActive = !_isCameraActive;
@@ -316,7 +287,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     }
   }
 
-  /// Dispara la cuenta regresiva manos libres 3-2-1 desde el menÃº
+  /// Dispara la cuenta regresiva manos libres 3-2-1 desde el menú
   void _triggerHandsFreeCountdown() {
     if (_isMenuOpen) _toggleMenu();
     _triggerService.triggerFromPalmGesture();
@@ -334,13 +305,13 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             style: AppTypography.sfProHeadline(color: AppColors.textWhite),
           ),
           content: Text(
-            'ToroCorp Music necesita acceso a la CÃ¡mara y al MicrÃ³fono para grabar tus interpretaciones y sincronizar la letra automÃ¡ticamente con tu voz.',
+            'ToroCorp Music necesita acceso a la Cámara y al Micrófono para grabar tus interpretaciones y sincronizar la letra automáticamente con tu voz.',
             style: AppTypography.sfProBody(color: AppColors.textSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('MÃ¡s Tarde', style: TextStyle(color: AppColors.textSecondary)),
+              child: const Text('Más Tarde', style: TextStyle(color: AppColors.textSecondary)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -409,7 +380,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       if (_isMenuOpen) _toggleMenu();
     });
 
-    // Iniciar temporizador de grabaciÃ³n
+    // Iniciar temporizador de grabación
     _recordingTimer?.cancel();
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _isRecording) {
@@ -419,18 +390,18 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       }
     });
 
-    // Iniciar grabaciÃ³n de video en la cÃ¡mara si estÃ¡ activa
+    // Iniciar grabación de video en la cámara si está activa
     if (_isCameraActive && _isCameraInitialized && _cameraController != null) {
       try {
         if (!_cameraController!.value.isRecordingVideo) {
           await _cameraController!.startVideoRecording();
         }
       } catch (e) {
-        debugPrint('ToroCorp Music: Info iniciar grabaciÃ³n video: $e');
+        debugPrint('ToroCorp Music: Info iniciar grabación video: $e');
       }
     }
 
-    // Asegurar que el motor de karaoke acÃºstico estÃ© activo y sincronizado
+    // Asegurar que el motor de karaoke acústico esté activo y sincronizado
     if (!_acousticService.isRunning) {
       await _acousticService.startTracking();
     }
@@ -442,17 +413,17 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       _isRecording = false;
     });
 
-    // Detener cÃ¡mara y obtener archivo de video
+    // Detener cámara y obtener archivo de video
     XFile? videoFile;
     if (_isCameraActive && _isCameraInitialized && (_cameraController?.value.isRecordingVideo ?? false)) {
       try {
         videoFile = await _cameraController?.stopVideoRecording();
       } catch (e) {
-        debugPrint('Error al detener grabaciÃ³n: $e');
+        debugPrint('Error al detener grabación: $e');
       }
     }
 
-    // Configurar composiciÃ³n
+    // Configurar composición
     final config = _compositor.buildConfig(
       mode: _recordingMode,
       resolution: _selectedQuality.isPro ? VideoResolution.fourK30 : VideoResolution.fhd1080p,
@@ -460,7 +431,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       hasUnlockedSinglePass: _hasSinglePass4K,
     );
 
-    // Guardar en GalerÃ­a local en Ã¡lbum ToroCorpMusic
+    // Guardar en Galería local en álbum ToroCorpMusic
     if (videoFile != null) {
       await _saveVideoToGallery(videoFile.path);
     }
@@ -475,8 +446,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
               backgroundColor: AppColors.surfaceDark,
               content: Text(
                 videoFile != null
-                    ? 'Â¡Video guardado en la GalerÃ­a en el Ã¡lbum "ToroCorpMusic" (${config.resolution.label})!'
-                    : 'Â¡SesiÃ³n de karaoke finalizada!',
+                    ? '¡Video guardado en la Galería en el álbum "ToroCorpMusic" (${config.resolution.label})!'
+                    : '¡Sesión de karaoke finalizada!',
                 style: const TextStyle(color: AppColors.textWhite),
               ),
             ),
@@ -486,11 +457,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  /// Guarda el video en la GalerÃ­a del telÃ©fono dentro del Ã¡lbum "ToroCorpMusic"
+  /// Guarda el video en la Galería del teléfono dentro del álbum "ToroCorpMusic"
   Future<void> _saveVideoToGallery(String videoPath) async {
     try {
       await Gal.putVideo(videoPath, album: 'ToroCorpMusic');
-      debugPrint('ToroCorp Music: Video guardado en GalerÃ­a / ToroCorpMusic');
+      debugPrint('ToroCorp Music: Video guardado en Galería / ToroCorpMusic');
     } catch (e) {
       debugPrint('Info Gal: $e. Aplicando copia directa a DCIM/ToroCorpMusic...');
       try {
@@ -506,13 +477,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     }
   }
 
-  String _formatTimer(int seconds) {
-    final m = (seconds ~/ 60).toString().padLeft(2, '0');
-    final s = (seconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  // Cuadro de diÃ¡logo para seleccionar formato de relaciÃ³n de aspecto
+  // Cuadro de diálogo para seleccionar formato de relación de aspecto
   void _openFormatSelectionModal() {
     showModalBottomSheet(
       context: context,
@@ -527,10 +492,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Formato de GrabaciÃ³n', style: AppTypography.sfProHeadline()),
+              Text('Formato de Grabación', style: AppTypography.sfProHeadline()),
               const SizedBox(height: 6),
               Text(
-                'Elige la proporciÃ³n nativa para tu video sin estiramientos.',
+                'Elige la proporción nativa para tu video sin estiramientos.',
                 style: AppTypography.sfProCaption(),
               ),
               const SizedBox(height: 14),
@@ -559,7 +524,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  // Cuadro de diÃ¡logo para seleccionar calidad y FPS
+  // Cuadro de diálogo para seleccionar calidad y FPS
   void _openQualitySelectionModal() {
     showModalBottomSheet(
       context: context,
@@ -577,7 +542,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
               Text('Calidad y Tasa de Cuadros (FPS)', style: AppTypography.sfProHeadline()),
               const SizedBox(height: 6),
               Text(
-                'Selecciona la resoluciÃ³n y fluidez deseada.',
+                'Selecciona la resolución y fluidez deseada.',
                 style: AppTypography.sfProCaption(),
               ),
               const SizedBox(height: 14),
@@ -638,7 +603,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  // Cuadro de diÃ¡logo para seleccionar el color de la letra karaoke
+  // Cuadro de diálogo para seleccionar el color de la letra karaoke
   void _openKaraokeColorPickerModal() {
     showModalBottomSheet(
       context: context,
@@ -653,10 +618,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Color de IluminaciÃ³n Karaoke', style: AppTypography.sfProHeadline()),
+              Text('Color de Iluminación Karaoke', style: AppTypography.sfProHeadline()),
               const SizedBox(height: 6),
               Text(
-                'Elige el color con el que brillarÃ¡ la letra conforme cantas.',
+                'Elige el color con el que brillará la letra conforme cantas.',
                 style: AppTypography.sfProCaption(),
               ),
               const SizedBox(height: 16),
@@ -910,7 +875,16 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   }
   void _openSongEditor() {
     final textController = TextEditingController(
-      text: 'De [G]mÃºsica [D]ligera...\nNada nos [Em]libra, nada mÃ¡s [C]queda...',
+      text: _currentSong.lines.isEmpty
+          ? ''
+          : _currentSong.lines.map((l) {
+              return l.tokens.map((t) {
+                if (t.chordUnderneath != null && t.chordUnderneath!.isNotEmpty) {
+                  return '[${t.chordUnderneath}]${t.word}';
+                }
+                return t.word;
+              }).join(' ');
+            }).join('\n'),
     );
 
     showModalBottomSheet(
@@ -920,10 +894,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
+      builder: (modalContext) {
         return Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            bottom: MediaQuery.of(modalContext).viewInsets.bottom + 20,
             left: 20,
             right: 20,
             top: 20,
@@ -932,8 +906,17 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Cargar Guion o PDF en ToroCorp Music', style: AppTypography.sfProHeadline()),
-              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Cargar Guion o PDF en ToroCorp Music', style: AppTypography.sfProHeadline()),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                    onPressed: () => Navigator.of(modalContext).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
               Text(
                 'Escribe tu letra con acordes [G] o pega texto de partituras/PDFs.',
                 style: AppTypography.sfProCaption(),
@@ -944,6 +927,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 maxLines: 5,
                 style: AppTypography.sfMonoChordStyle(fontSize: 14, color: AppColors.textWhite),
                 decoration: InputDecoration(
+                  hintText: 'Pega o escribe tu letra aquí (ej. [G]De música ligera... o filas con acordes arriba)',
+                  hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
                   filled: true,
                   fillColor: AppColors.cardDark,
                   border: OutlineInputBorder(
@@ -957,18 +942,15 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () {
-                        final extractor = PdfScriptExtractor();
-                        const samplePdf = '   G        D\nDe mÃºsica ligera\n';
-                        final parsed = extractor.extractFromRawText(samplePdf);
-                        _applyNewSong(parsed);
-                        Navigator.of(context).pop();
+                      onPressed: () async {
+                        await _pickAndLoadPdfOrText(modalContext);
                       },
                       icon: const Icon(Icons.picture_as_pdf, color: AppColors.chordAmber),
-                      label: const Text('Cargar PDF'),
+                      label: const Text('Cargar PDF / TXT'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textWhite,
                         side: const BorderSide(color: AppColors.borderDark),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
@@ -976,25 +958,102 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () {
-                        final parser = ChordProParser();
-                        final parsed = parser.parse(textController.text);
-                        _applyNewSong(parsed);
-                        Navigator.of(context).pop();
+                        final raw = textController.text.trim();
+                        if (raw.isEmpty) {
+                          _applyNewSong(const SongScript(title: '', lines: []));
+                        } else if (raw.contains('[') && raw.contains(']')) {
+                          final parser = ChordProParser();
+                          _applyNewSong(parser.parse(raw));
+                        } else {
+                          final extractor = PdfScriptExtractor();
+                          _applyNewSong(extractor.extractFromRawText(raw));
+                        }
+                        Navigator.of(modalContext).pop();
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.chordAmber,
                         foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                       child: const Text('Aplicar Letra'),
                     ),
                   ),
                 ],
               ),
+              if (_currentSong.lines.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    _applyNewSong(const SongScript(title: '', lines: []));
+                    Navigator.of(modalContext).pop();
+                  },
+                  child: const Text(
+                    'Limpiar Guion (Dejar Isla Vacía)',
+                    style: TextStyle(color: Colors.redAccent, fontSize: 13),
+                  ),
+                ),
+              ],
             ],
           ),
         );
       },
     );
+  }
+
+  Future<void> _pickAndLoadPdfOrText(BuildContext modalContext) async {
+    try {
+      final file = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'txt', 'crd', 'pro', 'cho'],
+      );
+
+      if (file != null && file.path != null) {
+        final path = file.path!;
+        final fileName = file.name;
+        String extractedText = '';
+
+        if (path.toLowerCase().endsWith('.pdf')) {
+          try {
+            extractedText = await ReadPdfText.getPDFtext(path);
+          } catch (e) {
+            debugPrint('ToroCorp Music: Error en ReadPdfText: $e');
+          }
+        } else {
+          extractedText = await File(path).readAsString();
+        }
+
+        if (extractedText.trim().isNotEmpty) {
+          final extractor = PdfScriptExtractor();
+          final parsed = extractor.extractFromRawText(extractedText, title: fileName);
+          _applyNewSong(parsed);
+
+          if (modalContext.mounted) {
+            Navigator.of(modalContext).pop();
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: AppColors.surfaceDark,
+                content: Text(
+                  '¡Canción "$fileName" importada con éxito! (${parsed.allTokens.length} palabras)',
+                  style: const TextStyle(color: AppColors.textWhite),
+                ),
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No se pudo extraer texto del archivo seleccionado.'),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error al seleccionar archivo: $e');
+    }
   }
 
   void _applyNewSong(SongScript newSong) {
@@ -1014,7 +1073,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Visor de CÃ¡mara Frontal 100% Limpio (con relaciÃ³n de aspecto 9:16 nativa)
+          // 1. Visor de Cámara Frontal 100% Limpio (con relación de aspecto 9:16 nativa)
           CameraViewfinderWidget(
             cameraPreview: _isCameraActive && _isCameraInitialized && _cameraController != null
                 ? CameraPreview(_cameraController!)
@@ -1044,7 +1103,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                     isRecording: _isRecording,
                     recordingSeconds: _recordingSeconds,
                     highlightColor: _karaokeHighlightColor,
-                    onSettingsTap: _toggleMenu,
+                    onMenuTap: _toggleMenu,
+                    menuAnimationProgress: _menuAnimationController,
                     onWordTap: (globalIndex) {
                       _teleprompterController.jumpToGlobalWord(globalIndex);
                     },
@@ -1055,118 +1115,60 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             ),
           ),
 
-          // 3. Botón de Menú Superior Derecho (☰ <-> ✕)
+          // 3. Panel Desplegable del Afinador de Guitarra (cuando está activo)
+          if (_showTuner)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 122,
+              left: 20,
+              right: 20,
+              child: GuitarTunerWidget(currentTuning: _currentTuning),
+            ),
+
+          // 4. Botón Único Central REC (Pantalla Limpia sin temporizadores duplicados)
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            right: 12,
-            child: GestureDetector(
-              onTap: _toggleMenu,
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(200),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.borderDark, width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(120),
-                      blurRadius: 10,
+            bottom: 36,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: GestureDetector(
+                onTap: _toggleRecording,
+                child: Container(
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 4),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(160),
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: _isRecording ? 32 : 62,
+                      height: _isRecording ? 32 : 62,
+                      decoration: BoxDecoration(
+                        color: AppColors.recordRed,
+                        borderRadius: BorderRadius.circular(_isRecording ? 8 : 31),
+                      ),
+                      child: _isRecording
+                          ? null
+                          : const Icon(Icons.fiber_manual_record, color: Colors.transparent),
                     ),
-                  ],
-                ),
-                child: Center(
-                  child: AnimatedIcon(
-                    icon: AnimatedIcons.menu_close,
-                    progress: _menuAnimationController,
-                    color: AppColors.textWhite,
-                    size: 22,
                   ),
                 ),
               ),
             ),
           ),
 
-          // 4. Panel Desplegable del Afinador de Guitarra (cuando estÃ¡ activo)
-          if (_showTuner)
-            Positioned(
-              top: 130,
-              left: 20,
-              right: 20,
-              child: GuitarTunerWidget(currentTuning: _currentTuning),
-            ),
-
-          // 5. BotÃ³n Ãšnico Central REC y Temporizador de GrabaciÃ³n (Pantalla Limpia)
-          Positioned(
-            bottom: 36,
-            left: 0,
-            right: 0,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_isRecording)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withAlpha(200),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.recordRed, width: 1.5),
-                      ),
-                      child: Text(
-                        _formatTimer(_recordingSeconds),
-                        style: const TextStyle(
-                          color: AppColors.recordRed,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // BotÃ³n Circular Central REC
-                GestureDetector(
-                  onTap: _toggleRecording,
-                  child: Container(
-                    width: 78,
-                    height: 78,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(160),
-                          blurRadius: 16,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: _isRecording ? 32 : 62,
-                        height: _isRecording ? 32 : 62,
-                        decoration: BoxDecoration(
-                          color: AppColors.recordRed,
-                          borderRadius: BorderRadius.circular(_isRecording ? 8 : 31),
-                        ),
-                        child: _isRecording
-                            ? null
-                            : const Icon(Icons.fiber_manual_record, color: Colors.transparent),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 6. MenÃº Desplegable OLED Completo (â˜° <-> âœ•)
+          // 5. Menú Desplegable OLED Completo (☰ <-> ✕)
           if (_isMenuOpen)
             Positioned(
-              top: 75,
+              top: MediaQuery.of(context).padding.top + 122,
               right: 16,
               width: 310,
               child: Material(
@@ -1226,15 +1228,15 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           icon: Icons.timer,
                           iconColor: AppColors.chordAmber,
                           title: 'Cuenta Regresiva 3-2-1',
-                          subtitle: 'Iniciar grabaciÃ³n manos libres',
+                          subtitle: 'Iniciar grabación manos libres',
                           onTap: _triggerHandsFreeCountdown,
                         ),
 
-                        // 2. Activar / Desactivar CÃ¡mara (Modo solo Karaoke)
+                        // 2. Activar / Desactivar Cámara (Modo solo Karaoke)
                         _buildMenuItem(
                           icon: _isCameraActive ? Icons.videocam : Icons.videocam_off,
                           iconColor: _isCameraActive ? AppColors.tunerInTuneGreen : AppColors.textSecondary,
-                          title: 'CÃ¡mara (Video)',
+                          title: 'Cámara (Video)',
                           subtitle: _isCameraActive ? 'Activada' : 'Desactivada (Solo Karaoke)',
                           isActive: _isCameraActive,
                           onTap: () {
@@ -1255,10 +1257,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 4. Formato de GrabaciÃ³n (9:16, 16:9, etc.)
+                        // 4. Formato de Grabación (9:16, 16:9, etc.)
                         _buildMenuItem(
                           icon: Icons.aspect_ratio,
-                          title: 'Formato de GrabaciÃ³n',
+                          title: 'Formato de Grabación',
                           subtitle: _selectedFormat.label,
                           onTap: () {
                             _toggleMenu();
@@ -1282,17 +1284,17 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           icon: Icons.palette,
                           iconColor: _karaokeHighlightColor,
                           title: 'Color Letra Karaoke',
-                          subtitle: 'Personalizar iluminaciÃ³n',
+                          subtitle: 'Personalizar iluminación',
                           onTap: () {
                             _toggleMenu();
                             _openKaraokeColorPickerModal();
                           },
                         ),
 
-                        // 6b. Sensibilidad del MicrÃ³fono para Karaoke
+                        // 6b. Sensibilidad del Micrófono para Karaoke
                         _buildMenuItem(
                           icon: Icons.mic,
-                          title: 'Sensibilidad MicrÃ³fono',
+                          title: 'Sensibilidad Micrófono',
                           subtitle: _micSensitivityLabel(),
                           onTap: () {
                             _toggleMenu();
@@ -1337,10 +1339,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 10. Tipo de GrabaciÃ³n (Limpio vs Con Guion)
+                        // 10. Tipo de Grabación (Limpio vs Con Guion)
                         _buildMenuItem(
                           icon: _recordingMode == RecordingMode.clean ? Icons.videocam : Icons.subtitles,
-                          title: 'Tipo de GrabaciÃ³n',
+                          title: 'Tipo de Grabación',
                           subtitle: _recordingMode == RecordingMode.clean ? 'Video Limpio' : 'Con Guion',
                           onTap: () {
                             setState(() {
@@ -1352,11 +1354,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 11. Tutoriales y GuÃ­a
+                        // 11. Tutoriales y Guía
                         _buildMenuItem(
                           icon: Icons.help_outline,
-                          title: 'Tutoriales y GuÃ­a',
-                          subtitle: 'CÃ³mo usar cada funciÃ³n',
+                          title: 'Tutoriales y Guía',
+                          subtitle: 'Cómo usar cada función',
                           onTap: () {
                             _toggleMenu();
                             OnboardingTourDialog.show(context);
@@ -1368,7 +1370,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           icon: Icons.star,
                           iconColor: AppColors.chordAmber,
                           title: 'ToroCorp Music PRO',
-                          subtitle: 'Sin anuncios â€¢ 4K 60FPS',
+                          subtitle: 'Sin anuncios • 4K 60FPS',
                           onTap: () {
                             _toggleMenu();
                             ProUpgradeDialog.show(

@@ -119,38 +119,6 @@ class CameraViewfinderWidget extends StatelessWidget {
                 ),
               ),
             ),
-
-          // 3. Indicador de estado de grabación
-          if (isRecording)
-            Positioned(
-              top: 16,
-              left: 16,
-              child: SafeArea(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.recordRed,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.recordRed.withAlpha(120),
-                        blurRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.fiber_manual_record, size: 12, color: Colors.white),
-                      const SizedBox(width: 6),
-                      Text(
-                        'GRABANDO',
-                        style: AppTypography.sfProCaption(fontSize: 11, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

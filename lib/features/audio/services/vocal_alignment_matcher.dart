@@ -52,35 +52,33 @@ class VocalAlignmentMatcher {
 
     if (currentLine >= lines.length) return;
 
-    final tokens = lines[currentLine].tokens;
-
-    // Ventana de búsqueda: revisa la palabra actual y las siguientes 2 palabras en caso de saltos
+    // Ventana de búsqueda hacia adelante: revisa hasta las próximas 25 palabras
+    // para permitir saltarse versos o estrofas si el cantante se brinca una frase
     int matchedWordIndex = -1;
     int matchedLineIndex = currentLine;
     double bestSimilarity = 0.0;
 
-    for (int offset = 0; offset <= 2; offset++) {
-      int checkWord = currentWord + offset;
-      int checkLine = currentLine;
+    int scannedWords = 0;
+    int checkLine = currentLine;
+    int checkWord = currentWord;
 
-      if (checkWord >= tokens.length) {
-        // Mirar en la primera palabra de la siguiente línea
-        if (checkLine + 1 < lines.length) {
-          checkLine++;
-          checkWord = 0;
-        } else {
-          break;
+    while (checkLine < lines.length && scannedWords < 25) {
+      final lineTokens = lines[checkLine].tokens;
+      while (checkWord < lineTokens.length && scannedWords < 25) {
+        final targetWord = lineTokens[checkWord].word;
+        final sim = AudioBandpassFilter.similarity(cleanSpoken, targetWord);
+
+        if (sim >= 0.65 && sim > bestSimilarity) {
+          bestSimilarity = sim;
+          matchedWordIndex = checkWord;
+          matchedLineIndex = checkLine;
         }
-      }
 
-      final targetWord = lines[checkLine].tokens[checkWord].word;
-      final sim = AudioBandpassFilter.similarity(cleanSpoken, targetWord);
-
-      if (sim >= 0.65 && sim > bestSimilarity) {
-        bestSimilarity = sim;
-        matchedWordIndex = checkWord;
-        matchedLineIndex = checkLine;
+        checkWord++;
+        scannedWords++;
       }
+      checkLine++;
+      checkWord = 0;
     }
 
     if (matchedWordIndex != -1) {

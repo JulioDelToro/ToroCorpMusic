@@ -74,12 +74,12 @@ class AcousticVocalKaraokeService {
   static const int _maxCalibrationFrames = 8;
 
   /// Muestras consecutivas para confirmar canto / pausa
-  static const int _voiceConfirmFrames = 2; // ~100 ms
-  static const int _silenceConfirmFrames = 3; // ~150 ms
+  static const int _voiceConfirmFrames = 1; // ~30 ms detección instantánea sin delay
+  static const int _silenceConfirmFrames = 3; // ~100 ms para pausas o requintos
 
   /// Límites de duración por palabra (ms)
-  static const int _minWordHoldMs = 280;
-  static const int _maxWordHoldMs = 1800;
+  static const int _minWordHoldMs = 200;
+  static const int _maxWordHoldMs = 1200;
   // ────────────────────────────────────────────────────────────────────────
 
   int _voiceFrames = 0;
@@ -165,9 +165,9 @@ class AcousticVocalKaraokeService {
         await _audioRecorder.start(config, path: '');
       }
 
-      // 4. Monitorear amplitud cada 50 milisegundos para latencia ultra baja
+      // 4. Monitorear amplitud cada 30 milisegundos para latencia ultra baja e instantánea
       _amplitudeSubscription = _audioRecorder
-          .onAmplitudeChanged(const Duration(milliseconds: 50))
+          .onAmplitudeChanged(const Duration(milliseconds: 30))
           .listen(
         _handleAmplitude,
         onError: (err) {
@@ -276,7 +276,7 @@ class AcousticVocalKaraokeService {
     final wordIdx = _state.wordIndex.clamp(0, tokens.length - 1);
     final word = tokens[wordIdx].word.replaceAll(RegExp(r'[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]'), '');
     final int syllables = _countSyllables(word);
-    return (syllables * 280).clamp(_minWordHoldMs, _maxWordHoldMs);
+    return (syllables * 220).clamp(_minWordHoldMs, _maxWordHoldMs);
   }
 
   int _countSyllables(String word) {

@@ -4,13 +4,13 @@ import '../../../core/constants/app_colors.dart';
 import '../../scripts/models/lyric_token.dart';
 
 /// Cápsula flotante estilo "Dynamic Island" anclada inmediatamente bajo la cámara frontal.
-/// 
-/// Características clave solicitadas:
-/// 1. Ancho restringido con salto de línea automático (`softWrap: true`), nunca en una sola línea.
-/// 2. Scroll vertical suave por renglón/palabra manteniendo el verso actual visible sin desborde.
-/// 3. Indicador de micrófono "Voz" (con VAD acústico) y temporizador "REC" estilo Dynamic Island.
-/// 4. Botón de ajustes rápidos / ecualizador en el extremo derecho como en la interfaz nativa.
-/// 5. Soporte para acordes integrados (si la canción los tiene) sin romper el flujo de lectura.
+///
+/// Perfeccionada según feedback del usuario:
+/// 1. Dimensiones ampliadas (108dp de alto) para albergar 3 líneas completas de letra + acordes.
+/// 2. Botón "Voz" 100% estático en ancho y texto (nunca cambia de tamaño para evitar saltos en la letra).
+/// 3. Botón de menú hamburguesa (☰ <-> ✕) integrado directamente en el extremo derecho de la cápsula.
+/// 4. Único indicador de grabación con temporizador debajo de "Voz".
+/// 5. Estado inicial limpio con invitación a cargar guion o PDF.
 class FloatingTeleprompterCapsule extends StatefulWidget {
   final List<LyricToken> tokens;
   final int currentWordIndex;
@@ -19,7 +19,8 @@ class FloatingTeleprompterCapsule extends StatefulWidget {
   final bool isRecording;
   final int recordingSeconds;
   final Color highlightColor;
-  final VoidCallback? onSettingsTap;
+  final VoidCallback? onMenuTap;
+  final Animation<double>? menuAnimationProgress;
   final ValueChanged<int>? onWordTap;
   final VoidCallback? onResetTap;
   final double width;
@@ -33,12 +34,13 @@ class FloatingTeleprompterCapsule extends StatefulWidget {
     this.isWaitingForVoice = true,
     this.isRecording = false,
     this.recordingSeconds = 0,
-    this.highlightColor = const Color(0xFF64D2FF), // Cian elétrico iOS / Dynamic Island
-    this.onSettingsTap,
+    this.highlightColor = const Color(0xFF64D2FF), // Cian eléctrico Dynamic Island
+    this.onMenuTap,
+    this.menuAnimationProgress,
     this.onWordTap,
     this.onResetTap,
-    this.width = 330.0,
-    this.height = 86.0,
+    this.width = 355.0,
+    this.height = 108.0,
   });
 
   @override
@@ -61,17 +63,17 @@ class _FloatingTeleprompterCapsuleState
   void _scrollToActiveWord() {
     if (!_scrollController.hasClients) return;
 
-    // En promedio entran entre 3.5 y 4.5 palabras por renglón en el ancho de la cápsula.
-    // Cada renglón mide aproximadamente 22 a 26 píxeles de alto.
+    // Con 3 líneas visibles, el auto-scroll se posiciona suavemente
+    // estimando ~4 palabras por renglón y 28px de altura por línea (letra + acorde).
     final lineEstimate = (widget.currentWordIndex / 4.0);
-    final targetOffset = (lineEstimate * 24.0).clamp(
+    final targetOffset = (lineEstimate * 28.0).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
 
     _scrollController.animateTo(
       targetOffset,
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
     );
   }
@@ -91,20 +93,20 @@ class _FloatingTeleprompterCapsuleState
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final effectiveWidth = math.min(widget.width, screenWidth - 20);
+    final effectiveWidth = math.min(widget.width, screenWidth - 16);
 
     return Container(
       width: effectiveWidth,
       height: widget.height,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withAlpha(235), // Negro puro OLED con opacidad sutil
-        borderRadius: BorderRadius.circular(38), // Forma de cápsula / Dynamic Island
+        color: Colors.black.withAlpha(238), // Negro puro OLED
+        borderRadius: BorderRadius.circular(38),
         border: Border.all(color: Colors.white.withAlpha(35), width: 1.0),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withAlpha(150),
-            blurRadius: 18,
+            color: Colors.black.withAlpha(160),
+            blurRadius: 20,
             offset: const Offset(0, 4),
           ),
         ],
@@ -112,56 +114,54 @@ class _FloatingTeleprompterCapsuleState
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // ── 1. Indicador de Micrófono / Voz y REC (Estilo Dynamic Island) ─
+          // ── 1. Indicador de Micrófono "Voz" (Estático) y REC ────────────────
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Píldora de Voz con feedback de canto
+              // Píldora de "Voz" con ancho fijo para evitar movimiento de texto
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                width: 58,
+                height: 28,
                 decoration: BoxDecoration(
                   color: widget.isSinging
-                      ? widget.highlightColor.withAlpha(40)
-                      : Colors.white.withAlpha(16),
-                  borderRadius: BorderRadius.circular(12),
+                      ? widget.highlightColor.withAlpha(45)
+                      : Colors.white.withAlpha(14),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                     color: widget.isSinging
                         ? widget.highlightColor
                         : Colors.white.withAlpha(35),
-                    width: widget.isSinging ? 1.2 : 0.8,
+                    width: widget.isSinging ? 1.5 : 0.8,
                   ),
                   boxShadow: widget.isSinging
                       ? [
                           BoxShadow(
-                            color: widget.highlightColor.withAlpha(120),
-                            blurRadius: 6,
+                            color: widget.highlightColor.withAlpha(140),
+                            blurRadius: 8,
+                            spreadRadius: 1,
                           ),
                         ]
                       : null,
                 ),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
                       widget.isSinging ? Icons.mic : Icons.mic_none,
                       color: widget.isSinging
                           ? widget.highlightColor
-                          : (widget.isWaitingForVoice
-                              ? AppColors.chordAmber
-                              : Colors.lightBlueAccent),
-                      size: 12,
+                          : Colors.white70,
+                      size: 13,
                     ),
                     const SizedBox(width: 3),
                     Text(
-                      widget.isSinging ? 'Canta' : 'Voz',
+                      'Voz',
                       style: TextStyle(
                         color: widget.isSinging
                             ? widget.highlightColor
-                            : (widget.isWaitingForVoice
-                                ? AppColors.chordAmber
-                                : Colors.lightBlueAccent),
-                        fontSize: 10.5,
+                            : Colors.white70,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.2,
                       ),
@@ -169,7 +169,7 @@ class _FloatingTeleprompterCapsuleState
                   ],
                 ),
               ),
-              const SizedBox(height: 5),
+              const SizedBox(height: 6),
 
               // Indicador de Grabación / Temporizador
               Row(
@@ -217,12 +217,12 @@ class _FloatingTeleprompterCapsuleState
           const VerticalDivider(
             color: Colors.white24,
             width: 1,
-            indent: 4,
-            endIndent: 4,
+            indent: 6,
+            endIndent: 6,
           ),
           const SizedBox(width: 10),
 
-          // ── 2. Área de Lectura Teleprompter con Wrap Vertical y Shader ──
+          // ── 2. Área de Lectura Teleprompter (3 líneas + acordes) ─────────
           Expanded(
             child: ShaderMask(
               shaderCallback: (rect) {
@@ -234,7 +234,7 @@ class _FloatingTeleprompterCapsuleState
                     Colors.black,
                     Colors.transparent,
                   ],
-                  stops: [0.0, 0.76, 1.0],
+                  stops: [0.0, 0.85, 1.0],
                 ).createShader(rect);
               },
               blendMode: BlendMode.dstIn,
@@ -242,19 +242,27 @@ class _FloatingTeleprompterCapsuleState
                 controller: _scrollController,
                 physics: const BouncingScrollPhysics(),
                 child: widget.tokens.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Text(
-                          'Carga un guion o letra desde el menú...',
-                          style: TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12,
+                    ? GestureDetector(
+                        onTap: widget.onMenuTap,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          color: Colors.transparent,
+                          child: const Center(
+                            child: Text(
+                              'Toca ☰ para escribir, pegar o cargar letra / PDF...',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12.5,
+                                height: 1.3,
+                              ),
+                            ),
                           ),
                         ),
                       )
                     : Wrap(
-                        spacing: 4.0,
-                        runSpacing: 3.5,
+                        spacing: 4.5,
+                        runSpacing: 4.0,
                         children: List.generate(widget.tokens.length, (index) {
                           final isSpoken = index < widget.currentWordIndex;
                           final isCurrent = index == widget.currentWordIndex;
@@ -300,7 +308,7 @@ class _FloatingTeleprompterCapsuleState
                                           token.chordUnderneath!,
                                           style: TextStyle(
                                             fontFamily: 'monospace',
-                                            fontSize: 9.0,
+                                            fontSize: 9.5,
                                             fontWeight: FontWeight.bold,
                                             color: isCurrent
                                                 ? widget.highlightColor
@@ -308,6 +316,7 @@ class _FloatingTeleprompterCapsuleState
                                             height: 1.0,
                                           ),
                                         ),
+                                        const SizedBox(height: 2),
                                         Text(token.word, style: wordStyle),
                                       ],
                                     )
@@ -320,28 +329,35 @@ class _FloatingTeleprompterCapsuleState
             ),
           ),
 
-          // ── 3. Botón de Ajustes / Sliders estilo nativo (Extremo Derecho) ──
-          if (widget.onSettingsTap != null) ...[
+          // ── 3. Botón de Menú Hamburguesa (☰ <-> ✕) Integrado en la Cápsula ──
+          if (widget.onMenuTap != null) ...[
             const SizedBox(width: 8),
             GestureDetector(
-              onTap: widget.onSettingsTap,
+              onTap: widget.onMenuTap,
               child: Container(
-                width: 36,
-                height: 36,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white.withAlpha(20),
                   border: Border.all(
-                    color: Colors.white.withAlpha(40),
+                    color: Colors.white.withAlpha(45),
                     width: 1.0,
                   ),
                 ),
-                child: const Center(
-                  child: Icon(
-                    Icons.tune_rounded,
-                    color: Colors.white,
-                    size: 17,
-                  ),
+                child: Center(
+                  child: widget.menuAnimationProgress != null
+                      ? AnimatedIcon(
+                          icon: AnimatedIcons.menu_close,
+                          progress: widget.menuAnimationProgress!,
+                          color: AppColors.textWhite,
+                          size: 20,
+                        )
+                      : const Icon(
+                          Icons.menu,
+                          color: AppColors.textWhite,
+                          size: 20,
+                        ),
                 ),
               ),
             ),
