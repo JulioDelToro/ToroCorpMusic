@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_typography.dart';
 import '../controllers/splash_video_controller.dart';
 
-/// Pantalla de bienvenida con reproducción de video intro a pantalla completa
+/// Pantalla de bienvenida con reproducción de video intro en formato 9:16
+/// sin botón de saltar: el usuario espera a que termine el video para acceder a la app.
 class SplashVideoScreen extends StatefulWidget {
   final VoidCallback onFinished;
   final String videoAsset;
@@ -46,53 +46,37 @@ class _SplashVideoScreenState extends State<SplashVideoScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.pureBlackOled,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _controller.skip,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Video Player a pantalla completa
-            if (videoCtrl != null && videoCtrl.value.isInitialized)
-              Center(
-                child: AspectRatio(
-                  aspectRatio: videoCtrl.value.aspectRatio,
-                  child: VideoPlayer(videoCtrl),
-                ),
-              )
-            else
-              const Center(
-                child: SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.textSecondary),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Video Player en formato vertical 9:16 centrado
+          if (videoCtrl != null && videoCtrl.value.isInitialized)
+            Center(
+              child: AspectRatio(
+                aspectRatio: 9 / 16,
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: videoCtrl.value.size.width,
+                    height: videoCtrl.value.size.height,
+                    child: VideoPlayer(videoCtrl),
                   ),
                 ),
               ),
-
-            // Indicador sutil de omitir en la esquina inferior
-            Positioned(
-              bottom: 32,
-              right: 24,
-              child: SafeArea(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withAlpha(128),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.borderDark),
-                  ),
-                  child: Text(
-                    'Saltar',
-                    style: AppTypography.sfProCaption(color: AppColors.textSecondary),
-                  ),
+            )
+          else
+            const Center(
+              child: SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(AppColors.textSecondary),
                 ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
