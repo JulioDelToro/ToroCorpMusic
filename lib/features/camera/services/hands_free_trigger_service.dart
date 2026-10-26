@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 /// Permite al guitarrista iniciar la grabación sin soltar el instrumento.
 class HandsFreeTriggerService {
   final VoidCallback onCountdownStart;
+  final VoidCallback? onCountdownComplete;
   final Duration countdownDuration;
 
   bool _isArmed = true;
@@ -14,6 +15,7 @@ class HandsFreeTriggerService {
 
   HandsFreeTriggerService({
     required this.onCountdownStart,
+    this.onCountdownComplete,
     this.countdownDuration = const Duration(seconds: 3),
   });
 
@@ -30,11 +32,15 @@ class HandsFreeTriggerService {
     if (!_isArmed || _isCountingDown) return;
 
     final clean = rawWord.trim().toLowerCase();
-    const triggerWords = ['grabar', 'iniciar', 'comenzar', 'record', 'start'];
+    const triggerWords = ['grabar', 'graba', 'iniciar', 'comenzar', 'record', 'start'];
 
     if (triggerWords.contains(clean)) {
       _startCountdown();
     }
+  }
+
+  void triggerFromVoiceCommand(String command) {
+    handleVoiceKeyword(command);
   }
 
   /// Procesa eventos de detección de la palma de la mano abierta
@@ -47,6 +53,10 @@ class HandsFreeTriggerService {
     }
   }
 
+  void triggerFromPalmGesture() {
+    handlePalmDetected(confidence: 0.95);
+  }
+
   void _startCountdown() {
     _isCountingDown = true;
     _countdownSeconds = 3;
@@ -55,9 +65,11 @@ class HandsFreeTriggerService {
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _countdownSeconds--;
+      onCountdownStart();
       if (_countdownSeconds <= 0) {
         timer.cancel();
         _isCountingDown = false;
+        onCountdownComplete?.call();
       }
     });
   }

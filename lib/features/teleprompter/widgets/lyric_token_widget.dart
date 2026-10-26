@@ -6,12 +6,13 @@ import '../../chords/widgets/fretboard_diagram_dialog.dart';
 import '../../scripts/models/lyric_token.dart';
 
 /// Widget que renderiza una palabra en la parte superior y su acorde de apoyo en la parte inferior.
-/// Al tocar el acorde inferior, abre el diagrama interactivo de digitación en el diapasón.
+/// Al cantar o activarse, se ilumina en tiempo real en el color karaoke seleccionado por el usuario.
 class LyricTokenWidget extends StatelessWidget {
   final LyricToken token;
   final bool isActive;
   final bool isPast;
   final double fontSize;
+  final Color highlightColor;
 
   const LyricTokenWidget({
     super.key,
@@ -19,6 +20,7 @@ class LyricTokenWidget extends StatelessWidget {
     this.isActive = false,
     this.isPast = false,
     this.fontSize = 28.0,
+    this.highlightColor = const Color(0xFFFFD60A),
   });
 
   void _onChordTap(BuildContext context, String chordName) {
@@ -32,36 +34,48 @@ class LyricTokenWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wordColor = isActive
-        ? AppColors.textWhite
-        : (isPast ? AppColors.textSecondary : AppColors.textWhite.withAlpha(200));
+        ? highlightColor
+        : (isPast ? AppColors.textSecondary : AppColors.textWhite.withAlpha(210));
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // 1. FILA SUPERIOR: Letra cantada (Apple iOS SF Pro Bold)
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            style: AppTypography.sfProLyricStyle(
-              fontSize: fontSize,
-              color: wordColor,
-            ).copyWith(
-              shadows: isActive
-                  ? [
-                      Shadow(
-                        color: AppColors.chordAmber.withAlpha(220),
-                        blurRadius: 16,
-                      ),
-                      const Shadow(
-                        color: Colors.white,
-                        blurRadius: 8,
-                      ),
-                    ]
-                  : null,
+          // 1. FILA SUPERIOR: Letra cantada (Apple iOS SF Pro Bold con efecto iluminación karaoke)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: isActive ? highlightColor.withAlpha(45) : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isActive ? highlightColor.withAlpha(180) : Colors.transparent,
+                width: 1.5,
+              ),
             ),
-            child: Text(token.word),
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 180),
+              style: AppTypography.sfProLyricStyle(
+                fontSize: fontSize,
+                color: wordColor,
+              ).copyWith(
+                shadows: isActive
+                    ? [
+                        Shadow(
+                          color: highlightColor.withAlpha(230),
+                          blurRadius: 18,
+                        ),
+                        Shadow(
+                          color: highlightColor,
+                          blurRadius: 6,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(token.word),
+            ),
           ),
 
           const SizedBox(height: 3),
@@ -73,10 +87,10 @@ class LyricTokenWidget extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: isActive ? AppColors.chordAmber.withAlpha(60) : Colors.transparent,
+                  color: isActive ? highlightColor.withAlpha(40) : Colors.transparent,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
-                    color: isActive ? AppColors.chordAmber : AppColors.chordAmber.withAlpha(120),
+                    color: isActive ? highlightColor : AppColors.chordAmber.withAlpha(120),
                     width: 1,
                   ),
                 ),
@@ -84,7 +98,7 @@ class LyricTokenWidget extends StatelessWidget {
                   token.chordUnderneath!,
                   style: AppTypography.sfMonoChordStyle(
                     fontSize: fontSize * 0.55,
-                    color: AppColors.chordAmber,
+                    color: isActive ? highlightColor : AppColors.chordAmber,
                   ),
                 ),
               ),

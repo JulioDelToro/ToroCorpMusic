@@ -11,6 +11,7 @@ class TeleprompterBarWidget extends StatefulWidget {
   final int activeWordIndex;
   final bool isMirrorMode;
   final double fontSize;
+  final Color highlightColor;
   final VoidCallback? onNextTap;
   final VoidCallback? onPrevTap;
 
@@ -21,6 +22,7 @@ class TeleprompterBarWidget extends StatefulWidget {
     this.activeWordIndex = 0,
     this.isMirrorMode = false,
     this.fontSize = 26.0,
+    this.highlightColor = const Color(0xFFFFD60A),
     this.onNextTap,
     this.onPrevTap,
   });
@@ -66,7 +68,7 @@ class _TeleprompterBarWidgetState extends State<TeleprompterBarWidget> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withAlpha(200),
+        color: Colors.black.withAlpha(210),
         border: const Border(
           bottom: BorderSide(color: AppColors.borderDark, width: 1.5),
         ),
@@ -103,6 +105,7 @@ class _TeleprompterBarWidgetState extends State<TeleprompterBarWidget> {
                           isActive: isActiveWord,
                           isPast: isPastWord,
                           fontSize: widget.fontSize,
+                          highlightColor: widget.highlightColor,
                         );
                       }),
                     ),
