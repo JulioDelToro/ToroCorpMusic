@@ -108,6 +108,22 @@ void main() {
       expect(service.currentState.isWaitingForVoice, isTrue);
     });
 
+    test('jumpTo permite saltar directamente a una línea y palabra específica con límites seguros', () {
+      service.jumpTo(1, 1);
+      expect(service.currentState.lineIndex, equals(1));
+      expect(service.currentState.wordIndex, equals(1));
+      expect(service.currentState.isWaitingForVoice, isTrue);
+
+      // Límites fuera de rango
+      service.jumpTo(99, 99);
+      expect(service.currentState.lineIndex, equals(1));
+      expect(service.currentState.wordIndex, equals(1)); // Última palabra de la línea 1
+
+      service.jumpTo(-5, -5);
+      expect(service.currentState.lineIndex, equals(0));
+      expect(service.currentState.wordIndex, equals(0));
+    });
+
     test('updateSong cambia la canción y reinicia el estado', () {
       service.nextWordManual();
       service.nextWordManual();

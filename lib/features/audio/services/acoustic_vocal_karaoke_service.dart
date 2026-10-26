@@ -185,6 +185,7 @@ class AcousticVocalKaraokeService {
   }
 
   void _handleAmplitude(Amplitude amp) {
+    if (!_isRunning || _stateController.isClosed) return;
     final double db = amp.current;
 
     // Calibración adaptativa inicial del piso de ruido de la habitación
