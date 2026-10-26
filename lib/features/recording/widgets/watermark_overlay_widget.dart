@@ -8,7 +8,7 @@ class WatermarkOverlayWidget extends StatelessWidget {
 
   const WatermarkOverlayWidget({
     super.key,
-    this.text = 'Toro Music',
+    this.text = 'ToroCorp Music',
   });
 
   @override

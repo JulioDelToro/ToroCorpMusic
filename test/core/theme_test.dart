@@ -7,7 +7,7 @@ import 'package:toro_music_teleprompter/core/theme/app_theme.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Theme enforces Pure Black OLED background and SF typography', () {
+  testWidgets('Theme enforces Pure Black OLED background and SF typography', (tester) async {
     final theme = AppTheme.darkOledTheme;
     expect(theme.scaffoldBackgroundColor, equals(AppColors.pureBlackOled));
     expect(theme.scaffoldBackgroundColor, equals(const Color(0xFF000000)));

@@ -42,6 +42,6 @@ class RecordingConfig {
     required this.resolution,
     required this.burnInSubtitles,
     required this.applyWatermark,
-    this.watermarkText = 'Hecho con Toro Music',
+    this.watermarkText = 'Hecho con ToroCorp Music',
   });
 }

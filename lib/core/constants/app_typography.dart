@@ -33,6 +33,15 @@ abstract final class AppTypography {
     );
   }
 
+  // Texto de cuerpo estilo iOS
+  static TextStyle sfProBody({double fontSize = 15, Color color = AppColors.textWhite}) {
+    return GoogleFonts.inter(
+      fontSize: fontSize,
+      fontWeight: FontWeight.w400,
+      color: color,
+    );
+  }
+
   // Subtítulos y tooltips
   static TextStyle sfProCaption({double fontSize = 13, Color color = AppColors.textSecondary}) {
     return GoogleFonts.inter(

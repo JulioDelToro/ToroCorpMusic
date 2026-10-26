@@ -44,7 +44,7 @@ class _ToroMusicAppState extends State<ToroMusicApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Toro Music Teleprompter',
+      title: 'ToroCorp Music',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       theme: AppTheme.darkOledTheme,

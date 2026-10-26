@@ -49,7 +49,7 @@ class _OnboardingTourDialogState extends State<OnboardingTourDialog> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Bienvenido a Toro Music',
+                  'Bienvenido a ToroCorp Music',
                   style: AppTypography.sfProHeadline(fontSize: 16, color: AppColors.chordAmber),
                 ),
                 Text(

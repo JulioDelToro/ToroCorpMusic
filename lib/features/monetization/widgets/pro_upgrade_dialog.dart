@@ -50,7 +50,7 @@ class ProUpgradeDialog extends StatelessWidget {
             const Icon(Icons.star, color: AppColors.chordAmber, size: 40),
             const SizedBox(height: 8),
             Text(
-              'Toro Music PRO',
+              'ToroCorp Music PRO',
               style: AppTypography.sfProHeadline(fontSize: 22),
             ),
             const SizedBox(height: 16),
@@ -71,7 +71,7 @@ class ProUpgradeDialog extends StatelessWidget {
                   if (context.mounted) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('¡Bienvenido a Toro Music Pro!')),
+                      const SnackBar(content: Text('¡Bienvenido a ToroCorp Music PRO!')),
                     );
                   }
                 },

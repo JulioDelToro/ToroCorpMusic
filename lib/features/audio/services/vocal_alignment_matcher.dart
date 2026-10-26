@@ -11,6 +11,7 @@ class VocalAlignmentMatcher {
   final StreamController<AlignmentState> _stateController = StreamController<AlignmentState>.broadcast();
 
   AlignmentState _currentState = const AlignmentState();
+  int _lastUtteranceWordCount = 0;
 
   VocalAlignmentMatcher(this.song) {
     _stateController.add(_currentState);
@@ -18,6 +19,25 @@ class VocalAlignmentMatcher {
 
   Stream<AlignmentState> get alignmentStream => _stateController.stream;
   AlignmentState get currentState => _currentState;
+
+  /// Procesa una frase reconocida continuamente por el micrófono (karaoke tracking)
+  void processUtterance(String utterance) {
+    final words = utterance.trim().split(RegExp(r'\s+'));
+    if (words.isEmpty || words.first.isEmpty) return;
+
+    if (words.length < _lastUtteranceWordCount) {
+      _lastUtteranceWordCount = 0;
+    }
+
+    for (int i = _lastUtteranceWordCount; i < words.length; i++) {
+      processSpokenWord(words[i]);
+    }
+    _lastUtteranceWordCount = words.length;
+  }
+
+  void resetUtterance() {
+    _lastUtteranceWordCount = 0;
+  }
 
   /// Procesa una palabra cantada/hablada capturada por el micrófono.
   void processSpokenWord(String rawSpokenWord) {
@@ -123,6 +143,7 @@ class VocalAlignmentMatcher {
   }
 
   void reset() {
+    _lastUtteranceWordCount = 0;
     _currentState = const AlignmentState();
     _stateController.add(_currentState);
   }

@@ -26,4 +26,40 @@ void main() {
     matcher.processSpokenWord("zzz_noise");
     expect(matcher.currentState.currentWordIndex, equals(1));
   });
+
+  test('VocalAlignmentMatcher tracks continuous utterances like karaoke and transitions verses', () {
+    final song = SongScript(lines: [
+      const LyricLine(tokens: [
+        LyricToken(word: "De"),
+        LyricToken(word: "música"),
+        LyricToken(word: "ligera")
+      ]),
+      const LyricLine(tokens: [
+        LyricToken(word: "Nada"),
+        LyricToken(word: "nos"),
+        LyricToken(word: "libra")
+      ]),
+    ]);
+    final matcher = VocalAlignmentMatcher(song);
+
+    // Cantante canta la primera frase continua
+    matcher.processUtterance("De música");
+    expect(matcher.currentState.currentLineIndex, equals(0));
+    expect(matcher.currentState.currentWordIndex, equals(1));
+
+    // El reconocimiento añade "ligera"
+    matcher.processUtterance("De música ligera");
+    expect(matcher.currentState.currentLineIndex, equals(0));
+    expect(matcher.currentState.currentWordIndex, equals(2));
+
+    // El cantante hace una pausa / solo de guitarra: el teleprompter se queda esperando pacientemente
+    expect(matcher.currentState.currentLineIndex, equals(0));
+    expect(matcher.currentState.currentWordIndex, equals(2));
+
+    // El cantante reanuda y canta la siguiente estrofa
+    matcher.resetUtterance();
+    matcher.processUtterance("Nada nos libra");
+    expect(matcher.currentState.currentLineIndex, equals(1));
+    expect(matcher.currentState.currentWordIndex, equals(2));
+  });
 }

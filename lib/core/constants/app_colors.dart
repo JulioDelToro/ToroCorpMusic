@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Paleta oficial de colores para Toro Music Teleprompter.
+/// Paleta oficial de colores para ToroCorp Music.
 /// Optimizado para pantallas OLED (ahorro de batería y máximo contraste).
 abstract final class AppColors {
   // Fondos OLED
