@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
 import 'features/splash/presentation/splash_video_screen.dart';
+import 'features/studio/presentation/studio_recording_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,11 +50,7 @@ class _ToroMusicAppState extends State<ToroMusicApp> {
       theme: AppTheme.darkOledTheme,
       darkTheme: AppTheme.darkOledTheme,
       home: _splashFinished
-          ? const Scaffold(
-              body: Center(
-                child: Text('Toro Music Studio'),
-              ),
-            )
+          ? const StudioRecordingScreen()
           : SplashVideoScreen(onFinished: _onSplashFinished),
     );
   }

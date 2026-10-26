@@ -1,9 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:toro_music_teleprompter/features/studio/presentation/studio_recording_screen.dart';
 import 'package:toro_music_teleprompter/main.dart';
 
 void main() {
-  testWidgets('App smoke test mounts ToroMusicApp with splash disabled', (WidgetTester tester) async {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('App smoke test mounts ToroMusicApp and StudioRecordingScreen', (WidgetTester tester) async {
     await tester.pumpWidget(const ToroMusicApp(showSplash: false));
-    expect(find.text('Toro Music Studio'), findsOneWidget);
+    expect(find.byType(StudioRecordingScreen), findsOneWidget);
   });
 }
