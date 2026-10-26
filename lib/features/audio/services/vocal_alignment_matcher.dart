@@ -52,33 +52,37 @@ class VocalAlignmentMatcher {
 
     if (currentLine >= lines.length) return;
 
-    // Ventana de búsqueda hacia adelante: revisa hasta las próximas 25 palabras
-    // para permitir saltarse versos o estrofas si el cantante se brinca una frase
+    // Ventana de búsqueda secuencial controlada: revisa la palabra actual y las siguientes 2 palabras
+    // para evitar saltos descontrolados mientras el usuario está leyendo
     int matchedWordIndex = -1;
     int matchedLineIndex = currentLine;
     double bestSimilarity = 0.0;
 
-    int scannedWords = 0;
-    int checkLine = currentLine;
-    int checkWord = currentWord;
-
-    while (checkLine < lines.length && scannedWords < 25) {
-      final lineTokens = lines[checkLine].tokens;
-      while (checkWord < lineTokens.length && scannedWords < 25) {
-        final targetWord = lineTokens[checkWord].word;
+    final currentTokens = lines[currentLine].tokens;
+    for (int offset = 0; offset <= 2; offset++) {
+      int checkWord = currentWord + offset;
+      if (checkWord < currentTokens.length) {
+        final targetWord = currentTokens[checkWord].word;
         final sim = AudioBandpassFilter.similarity(cleanSpoken, targetWord);
-
-        if (sim >= 0.65 && sim > bestSimilarity) {
+        if (sim >= 0.70 && sim > bestSimilarity) {
           bestSimilarity = sim;
           matchedWordIndex = checkWord;
-          matchedLineIndex = checkLine;
+          matchedLineIndex = currentLine;
         }
-
-        checkWord++;
-        scannedWords++;
       }
-      checkLine++;
-      checkWord = 0;
+    }
+
+    // Si está en la última palabra de la línea, revisar si ya empezó la primera de la siguiente línea
+    if (matchedWordIndex == -1 && currentWord >= currentTokens.length - 1 && currentLine + 1 < lines.length) {
+      final nextLineTokens = lines[currentLine + 1].tokens;
+      if (nextLineTokens.isNotEmpty) {
+        final sim = AudioBandpassFilter.similarity(cleanSpoken, nextLineTokens.first.word);
+        if (sim >= 0.70) {
+          bestSimilarity = sim;
+          matchedWordIndex = 0;
+          matchedLineIndex = currentLine + 1;
+        }
+      }
     }
 
     if (matchedWordIndex != -1) {

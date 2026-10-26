@@ -2,17 +2,22 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../scripts/models/lyric_token.dart';
+import '../../scripts/models/song_script.dart';
 
 /// Cápsula flotante estilo "Dynamic Island" anclada inmediatamente bajo la cámara frontal.
 ///
-/// Perfeccionada según feedback del usuario:
-/// 1. Dimensiones ampliadas (108dp de alto) para albergar 3 líneas completas de letra + acordes.
-/// 2. Botón "Voz" 100% estático en ancho y texto (nunca cambia de tamaño para evitar saltos en la letra).
-/// 3. Botón de menú hamburguesa (☰ <-> ✕) integrado directamente en el extremo derecho de la cápsula.
-/// 4. Único indicador de grabación con temporizador debajo de "Voz".
-/// 5. Estado inicial limpio con invitación a cargar guion o PDF.
+/// Arquitectura de 2 Líneas según especificación:
+/// - Línea 1 (Línea Actual que se va leyendo):
+///   * Las palabras que ya leí se ponen en color (highlightColor).
+///   * La palabra activa resalta en color con resplandor.
+///   * Las palabras por leer están en blanco.
+/// - Línea 2 (Línea Siguiente que sigue para leer):
+///   * Muestra el siguiente verso en color blanco suave (Colors.white60) para anticipar lectura.
+/// - Sin desbordes ni saltos de posición durante la lectura.
 class FloatingTeleprompterCapsule extends StatefulWidget {
-  final List<LyricToken> tokens;
+  final LyricLine? currentLine;
+  final LyricLine? nextLine;
+  final List<LyricToken>? tokens; // Compatibilidad y fallback
   final int currentWordIndex;
   final bool isSinging;
   final bool isWaitingForVoice;
@@ -22,22 +27,26 @@ class FloatingTeleprompterCapsule extends StatefulWidget {
   final VoidCallback? onMenuTap;
   final Animation<double>? menuAnimationProgress;
   final ValueChanged<int>? onWordTap;
+  final VoidCallback? onNextLineTap;
   final VoidCallback? onResetTap;
   final double width;
   final double height;
 
   const FloatingTeleprompterCapsule({
     super.key,
-    required this.tokens,
+    this.currentLine,
+    this.nextLine,
+    this.tokens,
     required this.currentWordIndex,
     this.isSinging = false,
     this.isWaitingForVoice = true,
     this.isRecording = false,
     this.recordingSeconds = 0,
-    this.highlightColor = const Color(0xFF64D2FF), // Cian eléctrico Dynamic Island
+    this.highlightColor = const Color(0xFF64D2FF), // Cian eléctrico default
     this.onMenuTap,
     this.menuAnimationProgress,
     this.onWordTap,
+    this.onNextLineTap,
     this.onResetTap,
     this.width = 355.0,
     this.height = 108.0,
@@ -53,32 +62,6 @@ class _FloatingTeleprompterCapsuleState
   final ScrollController _scrollController = ScrollController();
 
   @override
-  void didUpdateWidget(covariant FloatingTeleprompterCapsule oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.currentWordIndex != oldWidget.currentWordIndex) {
-      _scrollToActiveWord();
-    }
-  }
-
-  void _scrollToActiveWord() {
-    if (!_scrollController.hasClients) return;
-
-    // Con 3 líneas visibles, el auto-scroll se posiciona suavemente
-    // estimando ~4 palabras por renglón y 28px de altura por línea (letra + acorde).
-    final lineEstimate = (widget.currentWordIndex / 4.0);
-    final targetOffset = (lineEstimate * 28.0).clamp(
-      0.0,
-      _scrollController.position.maxScrollExtent,
-    );
-
-    _scrollController.animateTo(
-      targetOffset,
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
@@ -90,10 +73,19 @@ class _FloatingTeleprompterCapsuleState
     return '$m:$s';
   }
 
+  LyricLine? _getEffectiveCurrentLine() {
+    if (widget.currentLine != null) return widget.currentLine;
+    if (widget.tokens != null && widget.tokens!.isNotEmpty) {
+      return LyricLine(tokens: widget.tokens!);
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final effectiveWidth = math.min(widget.width, screenWidth - 16);
+    final currentLine = _getEffectiveCurrentLine();
 
     return Container(
       width: effectiveWidth,
@@ -222,111 +214,54 @@ class _FloatingTeleprompterCapsuleState
           ),
           const SizedBox(width: 10),
 
-          // ── 2. Área de Lectura Teleprompter (3 líneas + acordes) ─────────
+          // ── 2. Área Central de Karaoke (Exactamente 2 Líneas) ──────────────
           Expanded(
-            child: ShaderMask(
-              shaderCallback: (rect) {
-                return const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black,
-                    Colors.black,
-                    Colors.transparent,
-                  ],
-                  stops: [0.0, 0.85, 1.0],
-                ).createShader(rect);
-              },
-              blendMode: BlendMode.dstIn,
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                child: widget.tokens.isEmpty
-                    ? GestureDetector(
-                        onTap: widget.onMenuTap,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          color: Colors.transparent,
-                          child: const Center(
-                            child: Text(
-                              'Toca ☰ para escribir, pegar o cargar letra / PDF...',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12.5,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
+            child: currentLine == null || currentLine.tokens.isEmpty
+                ? GestureDetector(
+                    onTap: widget.onMenuTap,
+                    child: Container(
+                      color: Colors.transparent,
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'Toca ☰ para escribir, pegar o cargar letra / PDF...',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12.5,
+                          height: 1.3,
                         ),
-                      )
-                    : Wrap(
-                        spacing: 4.5,
-                        runSpacing: 4.0,
-                        children: List.generate(widget.tokens.length, (index) {
-                          final isSpoken = index < widget.currentWordIndex;
-                          final isCurrent = index == widget.currentWordIndex;
-                          final token = widget.tokens[index];
-
-                          final Color wordColor = isCurrent
-                              ? widget.highlightColor
-                              : (isSpoken ? Colors.white38 : Colors.white);
-
-                          final TextStyle wordStyle = TextStyle(
-                            color: wordColor,
-                            fontWeight:
-                                isCurrent ? FontWeight.bold : FontWeight.w500,
-                            fontSize: isCurrent ? 14.5 : 13.5,
-                            height: 1.25,
-                            shadows: isCurrent
-                                ? [
-                                    BoxShadow(
-                                      color:
-                                          widget.highlightColor.withAlpha(160),
-                                      blurRadius: 8,
-                                    ),
-                                  ]
-                                : null,
-                          );
-
-                          return GestureDetector(
-                            onTap: widget.onWordTap != null
-                                ? () => widget.onWordTap!(index)
-                                : null,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 1.5,
-                                vertical: 1.0,
-                              ),
-                              child: token.chordUnderneath != null
-                                  ? Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          token.chordUnderneath!,
-                                          style: TextStyle(
-                                            fontFamily: 'monospace',
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: isCurrent
-                                                ? widget.highlightColor
-                                                : AppColors.chordAmber,
-                                            height: 1.0,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(token.word, style: wordStyle),
-                                      ],
-                                    )
-                                  : Text(token.word, style: wordStyle),
-                            ),
-                          );
-                        }),
                       ),
-              ),
-            ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    controller: _scrollController,
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── FILA 1: Línea que voy leyendo ──
+                        // Las palabras que ya leí se ponen en color
+                        _buildLineRow(
+                          line: currentLine,
+                          activeWordIndex: widget.currentWordIndex,
+                          isCurrentLine: true,
+                          onWordTap: widget.onWordTap,
+                        ),
+
+                        const SizedBox(height: 5),
+
+                        // ── FILA 2: Línea siguiente que sigue para leer ──
+                        _buildLineRow(
+                          line: widget.nextLine,
+                          activeWordIndex: -1,
+                          isCurrentLine: false,
+                          onWordTap: (_) => widget.onNextLineTap?.call(),
+                        ),
+                      ],
+                    ),
+                  ),
           ),
 
           // ── 3. Botón de Menú Hamburguesa (☰ <-> ✕) Integrado en la Cápsula ──
@@ -364,6 +299,123 @@ class _FloatingTeleprompterCapsuleState
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildLineRow({
+    required LyricLine? line,
+    required int activeWordIndex,
+    required bool isCurrentLine,
+    ValueChanged<int>? onWordTap,
+  }) {
+    if (line == null || line.tokens.isEmpty) {
+      if (!isCurrentLine) {
+        return const Padding(
+          padding: EdgeInsets.only(top: 2, left: 4),
+          child: Text(
+            '• Fin de la canción •',
+            style: TextStyle(
+              color: Colors.white24,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+
+    return Wrap(
+      spacing: 4.5,
+      runSpacing: 2.0,
+      children: List.generate(line.tokens.length, (idx) {
+        final token = line.tokens[idx];
+        final isRead = isCurrentLine && idx < activeWordIndex;
+        final isCurrent = isCurrentLine && idx == activeWordIndex;
+
+        final Color wordColor;
+        final FontWeight fontWeight;
+        final double fontSize;
+        List<Shadow>? shadows;
+
+        if (isCurrentLine) {
+          if (isRead) {
+            // "las que se ponen en color que ya las leí"
+            wordColor = widget.highlightColor;
+            fontWeight = FontWeight.w600;
+            fontSize = 14.0;
+          } else if (isCurrent) {
+            // Palabra activa cantando en este instante
+            wordColor = widget.highlightColor;
+            fontWeight = FontWeight.bold;
+            fontSize = 15.0;
+            shadows = [
+              BoxShadow(
+                color: widget.highlightColor.withAlpha(180),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ];
+          } else {
+            // Palabra que falta por leer de esta línea
+            wordColor = Colors.white;
+            fontWeight = FontWeight.w600;
+            fontSize = 14.0;
+          }
+        } else {
+          // "la línea siguiente que sigue para leer"
+          wordColor = Colors.white60;
+          fontWeight = FontWeight.w500;
+          fontSize = 12.5;
+        }
+
+        final wordStyle = TextStyle(
+          color: wordColor,
+          fontWeight: fontWeight,
+          fontSize: fontSize,
+          height: 1.15,
+          shadows: shadows,
+        );
+
+        final chord = token.chordUnderneath;
+
+        Widget tokenWidget;
+        if (chord != null && chord.isNotEmpty) {
+          final Color chordColor = isCurrentLine
+              ? (isRead || isCurrent ? widget.highlightColor : AppColors.chordAmber)
+              : AppColors.chordAmber.withAlpha(140);
+
+          tokenWidget = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                chord,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: isCurrentLine ? 9.5 : 8.5,
+                  fontWeight: FontWeight.bold,
+                  color: chordColor,
+                  height: 1.0,
+                ),
+              ),
+              const SizedBox(height: 1.5),
+              Text(token.word, style: wordStyle),
+            ],
+          );
+        } else {
+          tokenWidget = Text(token.word, style: wordStyle);
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onWordTap != null ? () => onWordTap(idx) : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2.0, vertical: 1.0),
+            child: tokenWidget,
+          ),
+        );
+      }),
     );
   }
 }

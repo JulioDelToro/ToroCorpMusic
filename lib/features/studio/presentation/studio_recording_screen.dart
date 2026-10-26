@@ -137,16 +137,12 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   QualityOption _selectedQuality = kQualityOptions[1]; // 1080p 30fps default
   Color _karaokeHighlightColor = const Color(0xFFFFD60A); // Amarillo Neón default
 
-  // Sensibilidad del micrófono para el karaoke (-60 dB = muy sensible, -20 dB = poco sensible)
-  // El usuario puede ajustar este valor desde el menú.
-  double _micSensitivityDb = -40.0;
-
   // Estado de grabación y herramientas
   bool _isRecording = false;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
   bool _showTuner = false;
-  bool _isMirrorMode = false;
+  final bool _isMirrorMode = false;
   bool _hasSinglePass4K = false;
   RecordingMode _recordingMode = RecordingMode.clean;
 
@@ -254,8 +250,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   /// Inicia el motor acústico de karaoke continuo sin bips del sistema
   Future<void> _startAcousticKaraoke() async {
     try {
-      // Aplicar sensibilidad actual antes de arrancar
-      _acousticService.silenceThresholdDb = _micSensitivityDb;
       final success = await _acousticService.startTracking();
       debugPrint('ToroCorp Music: Seguimiento acústico de voz iniciado: $success');
       if (mounted) {
@@ -760,119 +754,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   }
 
 
-  void _openMicSensitivityModal() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.mic, color: AppColors.chordAmber, size: 24),
-                      const SizedBox(width: 10),
-                      Text('Sensibilidad del Micrófono', style: AppTypography.sfProHeadline()),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Ajusta que tan fuerte tienes que cantar para que el karaoke te siga. Si el karaoke avanza solo sin que cantes, baja la sensibilidad.',
-                    style: AppTypography.sfProCaption(),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Muy Sensible', style: AppTypography.sfProCaption(fontSize: 11, color: AppColors.textSecondary)),
-                      Text(_micSensitivityLabel(), style: AppTypography.sfProHeadline(fontSize: 15, color: AppColors.chordAmber)),
-                      Text('Poco Sensible', style: AppTypography.sfProCaption(fontSize: 11, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                  Slider(
-                    value: _micSensitivityDb,
-                    min: -60.0,
-                    max: -15.0,
-                    divisions: 18,
-                    activeColor: AppColors.chordAmber,
-                    inactiveColor: AppColors.borderDark,
-                    onChanged: (val) {
-                      setModalState(() {});
-                      setState(() => _micSensitivityDb = val);
-                      _acousticService.silenceThresholdDb = val;
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildSensPreset('Estudio\nSilencioso', -55.0, setModalState),
-                      _buildSensPreset('Normal\n(Recomendado)', -40.0, setModalState),
-                      _buildSensPreset('Cuarto\nRuidoso', -25.0, setModalState),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.chordAmber,
-                      foregroundColor: Colors.black,
-                      minimumSize: const Size.fromHeight(44),
-                    ),
-                    child: const Text('Listo'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildSensPreset(String label, double value, StateSetter setModalState) {
-    final isSelected = (_micSensitivityDb - value).abs() < 1.0;
-    return GestureDetector(
-      onTap: () {
-        setState(() => _micSensitivityDb = value);
-        _acousticService.silenceThresholdDb = value;
-        setModalState(() {});
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.chordAmber.withAlpha(40) : AppColors.cardDark,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? AppColors.chordAmber : AppColors.borderDark,
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: isSelected ? AppColors.chordAmber : AppColors.textSecondary,
-            fontSize: 11,
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _micSensitivityLabel() {
-    final int val = _micSensitivityDb.toInt();
-    if (_micSensitivityDb <= -50) return 'Muy sensible ($val dB)';
-    if (_micSensitivityDb <= -35) return 'Normal ($val dB)';
-    return 'Poco sensible ($val dB)';
-  }
   void _openSongEditor() {
     final textController = TextEditingController(
       text: _currentSong.lines.isEmpty
@@ -1096,8 +977,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 animation: _teleprompterController,
                 builder: (context, _) {
                   return FloatingTeleprompterCapsule(
-                    tokens: _teleprompterController.song.allTokens,
-                    currentWordIndex: _teleprompterController.globalActiveWordIndex,
+                    currentLine: _teleprompterController.currentLine,
+                    nextLine: _teleprompterController.nextLine,
+                    currentWordIndex: _teleprompterController.activeWordIndex,
                     isSinging: _teleprompterController.isSinging,
                     isWaitingForVoice: _teleprompterController.isWaitingForVoice,
                     isRecording: _isRecording,
@@ -1105,8 +987,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                     highlightColor: _karaokeHighlightColor,
                     onMenuTap: _toggleMenu,
                     menuAnimationProgress: _menuAnimationController,
-                    onWordTap: (globalIndex) {
-                      _teleprompterController.jumpToGlobalWord(globalIndex);
+                    onWordTap: (wordIdx) {
+                      _teleprompterController.jumpToWordInCurrentLine(wordIdx);
+                    },
+                    onNextLineTap: () {
+                      _teleprompterController.jumpToNextLine();
                     },
                     onResetTap: _teleprompterController.reset,
                   );
@@ -1291,17 +1176,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 6b. Sensibilidad del Micrófono para Karaoke
-                        _buildMenuItem(
-                          icon: Icons.mic,
-                          title: 'Sensibilidad Micrófono',
-                          subtitle: _micSensitivityLabel(),
-                          onTap: () {
-                            _toggleMenu();
-                            _openMicSensitivityModal();
-                          },
-                        ),
-
                         // 7. Filtro de Belleza Facial (Modal)
                         _buildMenuItem(
                           icon: Icons.auto_fix_high,
@@ -1313,22 +1187,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 8. Modo Espejo
-                        _buildMenuItem(
-                          icon: Icons.flip,
-                          title: 'Modo Espejo',
-                          subtitle: _isMirrorMode ? 'Activado' : 'Desactivado',
-                          isActive: _isMirrorMode,
-                          onTap: () {
-                            setState(() {
-                              _isMirrorMode = !_isMirrorMode;
-                            });
-                            _teleprompterController.toggleMirrorMode();
-                            _toggleMenu();
-                          },
-                        ),
-
-                        // 9. Cargar PDF / Repertorio
+                        // 8. Cargar PDF / Repertorio
                         _buildMenuItem(
                           icon: Icons.picture_as_pdf,
                           title: 'Cargar PDF / Letra',

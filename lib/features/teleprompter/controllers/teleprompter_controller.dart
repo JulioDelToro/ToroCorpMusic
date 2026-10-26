@@ -43,6 +43,18 @@ class TeleprompterController extends ChangeNotifier {
   double get volumeDb => _volumeDb;
   double get vocalEnergy => _vocalEnergy;
 
+  /// Retorna la línea actual que se está leyendo o null si no hay canción
+  LyricLine? get currentLine =>
+      _song.lines.isNotEmpty && _activeLineIndex < _song.lines.length
+          ? _song.lines[_activeLineIndex]
+          : null;
+
+  /// Retorna la línea siguiente que sigue para leer o null si es la última
+  LyricLine? get nextLine =>
+      _song.lines.isNotEmpty && (_activeLineIndex + 1) < _song.lines.length
+          ? _song.lines[_activeLineIndex + 1]
+          : null;
+
   /// Retorna el índice global absoluto de la palabra activa en toda la canción
   int get globalActiveWordIndex {
     int count = 0;
@@ -93,6 +105,18 @@ class TeleprompterController extends ChangeNotifier {
     _activeWordIndex = wordIndex;
     acousticService?.jumpTo(lineIndex, wordIndex);
     notifyListeners();
+  }
+
+  /// Salta a una palabra dentro de la línea actual
+  void jumpToWordInCurrentLine(int wordIndex) {
+    jumpTo(_activeLineIndex, wordIndex);
+  }
+
+  /// Salta a la primera palabra de la línea siguiente
+  void jumpToNextLine() {
+    if (_activeLineIndex + 1 < _song.lines.length) {
+      jumpTo(_activeLineIndex + 1, 0);
+    }
   }
 
   /// Salta a una palabra usando su índice global plano en toda la canción

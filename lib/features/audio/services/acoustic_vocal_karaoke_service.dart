@@ -65,21 +65,21 @@ class AcousticVocalKaraokeService {
   StreamSubscription<Amplitude>? _amplitudeSubscription;
 
   // ── Parámetros de Detección Vocal (VAD) ──────────────────────────────────
-  /// Umbral base definido por el usuario (-60 dB = muy sensible, -20 dB = poco sensible)
-  double silenceThresholdDb = -40.0;
+  /// Umbral base optimizado para voz cantada (-32 dB)
+  double silenceThresholdDb = -32.0;
 
   /// Piso de ruido calibrado automáticamente al inicio
   double _ambientFloorDb = -60.0;
   int _calibrationFrames = 0;
-  static const int _maxCalibrationFrames = 8;
+  static const int _maxCalibrationFrames = 15;
 
   /// Muestras consecutivas para confirmar canto / pausa
-  static const int _voiceConfirmFrames = 1; // ~30 ms detección instantánea sin delay
-  static const int _silenceConfirmFrames = 3; // ~100 ms para pausas o requintos
+  static const int _voiceConfirmFrames = 2; // ~60 ms para confirmar canto real sin falsos positivos
+  static const int _silenceConfirmFrames = 6; // ~180 ms para confirmar pausa o requinto de guitarra
 
-  /// Límites de duración por palabra (ms)
-  static const int _minWordHoldMs = 200;
-  static const int _maxWordHoldMs = 1200;
+  /// Límites de duración por palabra (ms) al ritmo natural de canto
+  static const int _minWordHoldMs = 450;
+  static const int _maxWordHoldMs = 2200;
   // ────────────────────────────────────────────────────────────────────────
 
   int _voiceFrames = 0;
@@ -197,8 +197,8 @@ class AcousticVocalKaraokeService {
       return;
     }
 
-    // El umbral efectivo toma en cuenta el ruido de la habitación y el ajuste del usuario
-    final double effectiveThreshold = math.max(_ambientFloorDb + 5.0, silenceThresholdDb);
+    // El umbral efectivo toma en cuenta el ruido de la habitación y el ajuste optimizado
+    final double effectiveThreshold = math.max(_ambientFloorDb + 8.0, silenceThresholdDb);
     final bool hasVoice = db > effectiveThreshold;
 
     if (hasVoice) {
@@ -255,9 +255,8 @@ class AcousticVocalKaraokeService {
     _stateController.add(_state);
 
     final now = DateTime.now();
-    final heldMs = _wordStartTime != null
-        ? now.difference(_wordStartTime!).inMilliseconds
-        : 0;
+    _wordStartTime ??= now;
+    final heldMs = now.difference(_wordStartTime!).inMilliseconds;
 
     final int targetMs = _wordDurationMs();
 
@@ -276,7 +275,9 @@ class AcousticVocalKaraokeService {
     final wordIdx = _state.wordIndex.clamp(0, tokens.length - 1);
     final word = tokens[wordIdx].word.replaceAll(RegExp(r'[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]'), '');
     final int syllables = _countSyllables(word);
-    return (syllables * 220).clamp(_minWordHoldMs, _maxWordHoldMs);
+    // Ritmo natural de canto medido: 480ms base + 200ms por sílaba adicional
+    final duration = 480 + (syllables - 1) * 200;
+    return duration.clamp(_minWordHoldMs, _maxWordHoldMs);
   }
 
   int _countSyllables(String word) {

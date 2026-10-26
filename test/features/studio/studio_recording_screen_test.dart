@@ -23,7 +23,7 @@ void main() {
     expect(find.byIcon(Icons.tune), findsOneWidget);
     expect(find.byIcon(Icons.picture_as_pdf), findsOneWidget);
     expect(find.byIcon(Icons.auto_fix_high), findsOneWidget);
-    expect(find.byIcon(Icons.flip), findsOneWidget);
+    expect(find.byIcon(Icons.palette), findsOneWidget);
 
     // Cerrar menú
     await tester.tap(find.byType(AnimatedIcon));
