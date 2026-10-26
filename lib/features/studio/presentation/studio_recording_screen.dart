@@ -5,9 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:read_pdf_text/read_pdf_text.dart';
-
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../audio/services/acoustic_vocal_karaoke_service.dart';
@@ -21,13 +18,11 @@ import '../../monetization/widgets/pro_upgrade_dialog.dart';
 import '../../recording/models/recording_mode.dart';
 import '../../recording/services/video_recording_compositor.dart';
 import '../../scripts/models/song_script.dart';
-import '../../scripts/services/chordpro_parser.dart';
-import '../../scripts/services/pdf_script_extractor.dart';
+import '../../scripts/presentation/saved_songs_dialog.dart';
+import '../../scripts/services/saved_songs_service.dart';
 import '../../teleprompter/controllers/teleprompter_controller.dart';
 import '../../teleprompter/widgets/floating_teleprompter_capsule.dart';
-import '../../tuner/models/tuning_note.dart';
-import '../../tuner/services/pitch_detector.dart';
-import '../../tuner/widgets/guitar_tuner_widget.dart';
+import '../../tuner/presentation/guitar_tuner_screen.dart';
 import '../../tutorials/widgets/onboarding_tour_dialog.dart';
 
 /// Formatos de relación de aspecto de video
@@ -113,7 +108,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   late final SubscriptionService _subscriptionService;
   late final AdManager _adManager;
   late final VideoRecordingCompositor _compositor;
-  late final PitchDetector _pitchDetector;
 
   // Controlador de Cámara
   CameraController? _cameraController;
@@ -131,6 +125,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   late SongScript _currentSong;
   late VocalAlignmentMatcher _vocalMatcher;
   late TeleprompterController _teleprompterController;
+  final SavedSongsService _savedSongsService = SavedSongsService();
 
   // Preferencias de grabación seleccionables por el usuario
   FormatOption _selectedFormat = FormatOption.vertical9_16;
@@ -141,13 +136,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   bool _isRecording = false;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
-  bool _showTuner = false;
   final bool _isMirrorMode = false;
   bool _hasSinglePass4K = false;
   RecordingMode _recordingMode = RecordingMode.clean;
-
-  // Estado del afinador
-  late TuningResult _currentTuning;
 
   @override
   void initState() {
@@ -156,8 +147,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     _subscriptionService = SubscriptionService();
     _adManager = AdManager();
     _compositor = VideoRecordingCompositor();
-    _pitchDetector = PitchDetector();
-    _currentTuning = _pitchDetector.analyzeFrequency(82.41);
 
     _menuAnimationController = AnimationController(
       vsync: this,
@@ -349,15 +338,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     });
   }
 
-  void _toggleTuner() {
-    setState(() {
-      _showTuner = !_showTuner;
-      if (_showTuner) {
-        _currentTuning = _pitchDetector.analyzeFrequency(82.41);
-      }
-    });
-  }
-
   Future<void> _toggleRecording() async {
     if (_isRecording) {
       await _stopRecordingProcess();
@@ -370,7 +350,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     setState(() {
       _isRecording = true;
       _recordingSeconds = 0;
-      _showTuner = false;
       if (_isMenuOpen) _toggleMenu();
     });
 
@@ -754,187 +733,20 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   }
 
 
-  void _openSongEditor() {
-    final textController = TextEditingController(
-      text: _currentSong.lines.isEmpty
-          ? ''
-          : _currentSong.lines.map((l) {
-              return l.tokens.map((t) {
-                if (t.chordUnderneath != null && t.chordUnderneath!.isNotEmpty) {
-                  return '[${t.chordUnderneath}]${t.word}';
-                }
-                return t.word;
-              }).join(' ');
-            }).join('\n'),
-    );
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (modalContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(modalContext).viewInsets.bottom + 20,
-            left: 20,
-            right: 20,
-            top: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Cargar Guion o PDF en ToroCorp Music', style: AppTypography.sfProHeadline()),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: AppColors.textSecondary),
-                    onPressed: () => Navigator.of(modalContext).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Escribe tu letra con acordes [G] o pega texto de partituras/PDFs.',
-                style: AppTypography.sfProCaption(),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: textController,
-                maxLines: 5,
-                style: AppTypography.sfMonoChordStyle(fontSize: 14, color: AppColors.textWhite),
-                decoration: InputDecoration(
-                  hintText: 'Pega o escribe tu letra aquí (ej. [G]De música ligera... o filas con acordes arriba)',
-                  hintStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                  filled: true,
-                  fillColor: AppColors.cardDark,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.borderDark),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await _pickAndLoadPdfOrText(modalContext);
-                      },
-                      icon: const Icon(Icons.picture_as_pdf, color: AppColors.chordAmber),
-                      label: const Text('Cargar PDF / TXT'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textWhite,
-                        side: const BorderSide(color: AppColors.borderDark),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final raw = textController.text.trim();
-                        if (raw.isEmpty) {
-                          _applyNewSong(const SongScript(title: '', lines: []));
-                        } else if (raw.contains('[') && raw.contains(']')) {
-                          final parser = ChordProParser();
-                          _applyNewSong(parser.parse(raw));
-                        } else {
-                          final extractor = PdfScriptExtractor();
-                          _applyNewSong(extractor.extractFromRawText(raw));
-                        }
-                        Navigator.of(modalContext).pop();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.chordAmber,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text('Aplicar Letra'),
-                    ),
-                  ),
-                ],
-              ),
-              if (_currentSong.lines.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                    _applyNewSong(const SongScript(title: '', lines: []));
-                    Navigator.of(modalContext).pop();
-                  },
-                  child: const Text(
-                    'Limpiar Guion (Dejar Isla Vacía)',
-                    style: TextStyle(color: Colors.redAccent, fontSize: 13),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
+  void _openSavedSongsModal() {
+    SavedSongsDialog.show(
+      context,
+      songsService: _savedSongsService,
+      hasActiveSong: _currentSong.lines.isNotEmpty,
+      onSongSelected: _applyNewSong,
+      onClearSong: () => _applyNewSong(const SongScript(title: '', lines: [])),
     );
   }
 
-  Future<void> _pickAndLoadPdfOrText(BuildContext modalContext) async {
-    try {
-      final file = await FilePicker.pickFile(
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'crd', 'pro', 'cho'],
-      );
-
-      if (file != null && file.path != null) {
-        final path = file.path!;
-        final fileName = file.name;
-        String extractedText = '';
-
-        if (path.toLowerCase().endsWith('.pdf')) {
-          try {
-            extractedText = await ReadPdfText.getPDFtext(path);
-          } catch (e) {
-            debugPrint('ToroCorp Music: Error en ReadPdfText: $e');
-          }
-        } else {
-          extractedText = await File(path).readAsString();
-        }
-
-        if (extractedText.trim().isNotEmpty) {
-          final extractor = PdfScriptExtractor();
-          final parsed = extractor.extractFromRawText(extractedText, title: fileName);
-          _applyNewSong(parsed);
-
-          if (modalContext.mounted) {
-            Navigator.of(modalContext).pop();
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                backgroundColor: AppColors.surfaceDark,
-                content: Text(
-                  '¡Canción "$fileName" importada con éxito! (${parsed.allTokens.length} palabras)',
-                  style: const TextStyle(color: AppColors.textWhite),
-                ),
-              ),
-            );
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No se pudo extraer texto del archivo seleccionado.'),
-              ),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Error al seleccionar archivo: $e');
-    }
+  void _openGuitarTunerScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GuitarTunerScreen()),
+    );
   }
 
   void _applyNewSong(SongScript newSong) {
@@ -986,6 +798,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                     recordingSeconds: _recordingSeconds,
                     highlightColor: _karaokeHighlightColor,
                     onMenuTap: _toggleMenu,
+                    onPlaceholderTap: _openSavedSongsModal,
                     menuAnimationProgress: _menuAnimationController,
                     onWordTap: (wordIdx) {
                       _teleprompterController.jumpToWordInCurrentLine(wordIdx);
@@ -1000,16 +813,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             ),
           ),
 
-          // 3. Panel Desplegable del Afinador de Guitarra (cuando está activo)
-          if (_showTuner)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 122,
-              left: 20,
-              right: 20,
-              child: GuitarTunerWidget(currentTuning: _currentTuning),
-            ),
-
-          // 4. Botón Único Central REC (Pantalla Limpia sin temporizadores duplicados)
+          // 3. Botón Único Central REC (Pantalla Limpia sin temporizadores duplicados)
           Positioned(
             bottom: 36,
             left: 0,
@@ -1130,15 +934,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 3. Afinador de Guitarra
+                        // 3. Afinador de Guitarra (6 y 12 Cuerdas)
                         _buildMenuItem(
                           icon: Icons.tune,
                           title: 'Afinador de Guitarra',
-                          subtitle: _showTuner ? 'Activo en pantalla' : 'Tocar para abrir',
-                          isActive: _showTuner,
+                          subtitle: '6 y 12 cuerdas • Cuerda por cuerda',
                           onTap: () {
-                            _toggleTuner();
                             _toggleMenu();
+                            _openGuitarTunerScreen();
                           },
                         ),
 
@@ -1187,14 +990,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 8. Cargar PDF / Repertorio
+                        // 8. Letras y Repertorio (Mis Canciones y Guiones)
                         _buildMenuItem(
-                          icon: Icons.picture_as_pdf,
-                          title: 'Cargar PDF / Letra',
-                          subtitle: 'Importar acordes y letra',
+                          icon: Icons.lyrics,
+                          title: 'Letras y Repertorio',
+                          subtitle: 'Escribir, pegar o elegir guion',
                           onTap: () {
                             _toggleMenu();
-                            _openSongEditor();
+                            _openSavedSongsModal();
                           },
                         ),
 

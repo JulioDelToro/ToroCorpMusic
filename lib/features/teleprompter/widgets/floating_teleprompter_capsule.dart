@@ -25,6 +25,7 @@ class FloatingTeleprompterCapsule extends StatefulWidget {
   final int recordingSeconds;
   final Color highlightColor;
   final VoidCallback? onMenuTap;
+  final VoidCallback? onPlaceholderTap;
   final Animation<double>? menuAnimationProgress;
   final ValueChanged<int>? onWordTap;
   final VoidCallback? onNextLineTap;
@@ -44,6 +45,7 @@ class FloatingTeleprompterCapsule extends StatefulWidget {
     this.recordingSeconds = 0,
     this.highlightColor = const Color(0xFF64D2FF), // Cian eléctrico default
     this.onMenuTap,
+    this.onPlaceholderTap,
     this.menuAnimationProgress,
     this.onWordTap,
     this.onNextLineTap,
@@ -218,17 +220,20 @@ class _FloatingTeleprompterCapsuleState
           Expanded(
             child: currentLine == null || currentLine.tokens.isEmpty
                 ? GestureDetector(
-                    onTap: widget.onMenuTap,
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onPlaceholderTap ?? widget.onMenuTap,
                     child: Container(
                       color: Colors.transparent,
                       alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: const Text(
-                        'Toca ☰ para escribir, pegar o cargar letra / PDF...',
+                        'Toca aquí para escribir o pegar la letra de tu canción...',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Colors.white54,
+                          color: Colors.white60,
                           fontSize: 12.5,
                           height: 1.3,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),

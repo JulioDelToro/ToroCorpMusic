@@ -10,12 +10,20 @@ uniform sampler2D u_image;
 
 out vec4 fragColor;
 
-// Detección de rango de tono de piel humana
-bool isSkinTone(vec3 rgb) {
+// Estimador continuo y adaptativo de tono de piel humana (multitono: claro, medio, moreno)
+float calculateSkinWeight(vec3 rgb) {
     float r = rgb.r;
     float g = rgb.g;
     float b = rgb.b;
-    return (r > 0.35 && g > 0.20 && b > 0.15 && r > g && r > b && (r - g) > 0.05);
+
+    // Reglas universales de tono de piel en RGB: r > g, g >= b, diferencia suave
+    float isSkin = 0.0;
+    if (r > g && g > (b * 0.8) && (r - g) > 0.015 && (r - b) > 0.03) {
+        // Ponderar por la presencia de tonos cálidos
+        float warmFactor = clamp((r - b) * 3.5, 0.0, 1.0);
+        isSkin = warmFactor;
+    }
+    return isSkin;
 }
 
 void main() {
@@ -27,14 +35,17 @@ void main() {
         return;
     }
 
-    vec2 texelSize = 1.0 / u_resolution;
+    // Paso de muestreo adaptativo ampliado según intensidad para suavizado visible de estudio
+    float stepScale = 1.0 + (u_intensity * 2.2);
+    vec2 texelSize = (1.0 / u_resolution) * stepScale;
+
     vec3 colorSum = vec3(0.0);
     float weightSum = 0.0;
 
     // Filtro bilateral de suavizado con preservación de bordes
-    const int RADIUS = 3;
-    float spatialSigma = 3.0;
-    float colorSigma = 0.15;
+    const int RADIUS = 4;
+    float spatialSigma = 3.5;
+    float colorSigma = 0.22;
 
     for (int x = -RADIUS; x <= RADIUS; x++) {
         for (int y = -RADIUS; y <= RADIUS; y++) {
@@ -53,17 +64,17 @@ void main() {
         }
     }
 
-    vec3 blurredColor = colorSum / weightSum;
+    vec3 blurredColor = colorSum / max(weightSum, 0.0001);
 
-    // Aplicar solo si es tono de piel para preservar ojos, labios y cuerdas de guitarra
-    vec3 finalRgb = originalColor.rgb;
-    if (isSkinTone(originalColor.rgb)) {
-        // Mezclar según la intensidad escogida por el usuario
-        finalRgb = mix(originalColor.rgb, blurredColor, u_intensity * 0.85);
+    // Detección adaptativa de piel
+    float skin = calculateSkinWeight(originalColor.rgb);
+    float effectiveBlend = u_intensity * (0.4 + 0.6 * skin);
 
-        // Realce sutil de luminosidad
-        finalRgb += vec3(0.02 * u_intensity);
-    }
+    // Mezcla de suavizado facial de alta intensidad
+    vec3 finalRgb = mix(originalColor.rgb, blurredColor, clamp(effectiveBlend, 0.0, 0.95));
+
+    // Resplandor sutil y favorecedor de iluminación de estudio
+    finalRgb += vec3(0.035 * u_intensity * skin);
 
     fragColor = vec4(finalRgb, originalColor.a);
 }

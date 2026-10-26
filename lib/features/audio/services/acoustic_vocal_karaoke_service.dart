@@ -77,9 +77,9 @@ class AcousticVocalKaraokeService {
   static const int _voiceConfirmFrames = 2; // ~60 ms para confirmar canto real sin falsos positivos
   static const int _silenceConfirmFrames = 6; // ~180 ms para confirmar pausa o requinto de guitarra
 
-  /// Límites de duración por palabra (ms) al ritmo natural de canto
-  static const int _minWordHoldMs = 450;
-  static const int _maxWordHoldMs = 2200;
+  /// Límites de duración por palabra (ms) ajustados para que no se quede atrás
+  static const int _minWordHoldMs = 280;
+  static const int _maxWordHoldMs = 1400;
   // ────────────────────────────────────────────────────────────────────────
 
   int _voiceFrames = 0;
@@ -275,8 +275,16 @@ class AcousticVocalKaraokeService {
     final wordIdx = _state.wordIndex.clamp(0, tokens.length - 1);
     final word = tokens[wordIdx].word.replaceAll(RegExp(r'[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]'), '');
     final int syllables = _countSyllables(word);
-    // Ritmo natural de canto medido: 480ms base + 200ms por sílaba adicional
-    final duration = 480 + (syllables - 1) * 200;
+
+    // Ritmo natural y fluido de canto: 320ms base + 110ms por sílaba extra
+    // Evita que el teleprompter se quede rezagado cuando el usuario canta de corrido
+    int duration = 320 + (syllables - 1) * 110;
+
+    // Con canto sostenido y enérgico, avanza ágilmente sin atrasarse
+    if (_state.vocalEnergy > 0.45) {
+      duration = (duration * 0.88).round();
+    }
+
     return duration.clamp(_minWordHoldMs, _maxWordHoldMs);
   }
 

@@ -21,7 +21,7 @@ void main() {
     // Las opciones del menú ahora están visibles
     expect(find.text('ToroCorp Music'), findsWidgets);
     expect(find.byIcon(Icons.tune), findsOneWidget);
-    expect(find.byIcon(Icons.picture_as_pdf), findsOneWidget);
+    expect(find.byIcon(Icons.lyrics), findsOneWidget);
     expect(find.byIcon(Icons.auto_fix_high), findsOneWidget);
     expect(find.byIcon(Icons.palette), findsOneWidget);
 
