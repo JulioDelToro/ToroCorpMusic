@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import '../../../core/constants/app_colors.dart';
@@ -18,11 +18,13 @@ class GuitarTunerScreen extends StatefulWidget {
 
 class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
   final PitchDetector _pitchDetector = PitchDetector();
-  final AudioRecorder _audioRecorder = AudioRecorder();
+  AudioRecorder? _audioRecorder;
+  AudioRecorder get _recorder => _audioRecorder ??= AudioRecorder();
+  StreamSubscription<Uint8List>? _recordStreamSubscription;
 
   GuitarType _selectedGuitarType = GuitarType.sixString;
   int? _lockedStringIndex; // null = Modo Automático, 1..6 o 1..12 = cuerda fija
-  StreamSubscription<Amplitude>? _amplitudeSubscription;
+  final List<int> _pcmBuffer = [];
 
   TuningResult _currentResult = const TuningResult(
     detectedFrequency: 0,
@@ -42,71 +44,85 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
 
   @override
   void dispose() {
-    _amplitudeSubscription?.cancel();
-    _audioRecorder.dispose();
+    _isListening = false;
+    _recordStreamSubscription?.cancel();
+    _stopAndDisposeRecorder();
     super.dispose();
+  }
+
+  Future<void> _stopAndDisposeRecorder() async {
+    try {
+      await _audioRecorder?.stop();
+    } catch (_) {}
+    try {
+      await _audioRecorder?.dispose();
+    } catch (_) {}
+    _audioRecorder = null;
   }
 
   Future<void> _startListening() async {
     try {
-      final hasPerm = await _audioRecorder.hasPermission();
-      if (!hasPerm) return;
+      final hasPerm = await _recorder.hasPermission();
+      if (!hasPerm) {
+        debugPrint('ToroCorp Music Afinador: Permiso de micrófono denegado');
+        return;
+      }
 
       const config = RecordConfig(
-        encoder: AudioEncoder.aacLc,
-        sampleRate: 44100,
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: 22050,
         numChannels: 1,
       );
 
-      await _audioRecorder.start(config, path: '');
+      final stream = await _recorder.startStream(config);
       if (mounted) {
         setState(() {
           _isListening = true;
         });
       }
 
-      _amplitudeSubscription = _audioRecorder
-          .onAmplitudeChanged(const Duration(milliseconds: 60))
-          .listen((amp) {
-        if (!mounted) return;
-
-        // Si hay señal audible por encima de -42 dB, actualizar frecuencia
-        if (amp.current > -42.0) {
-          // Si hay una cuerda fijada, simula convergencia hacia la cuerda
-          final targetFreq = _getTargetFrequency();
-          final jitter = (math.Random().nextDouble() - 0.5) * 8.0;
-          _updateFrequency(targetFreq + jitter);
-        } else {
-          // Silencio o desvanecimiento
-          if (_currentResult.detectedFrequency > 0) {
-            setState(() {
-              _currentResult = _pitchDetector.analyzeFrequency(
-                0,
-                guitarType: _selectedGuitarType,
-                lockedStringIndex: _lockedStringIndex,
-              );
-            });
-          }
-        }
-      });
+      _recordStreamSubscription = stream.listen(
+        _processAudioChunk,
+        onError: (err) {
+          debugPrint('ToroCorp Music: Error en stream del afinador: $err');
+        },
+      );
     } catch (e) {
-      debugPrint('ToroCorp Music: Info afinador: $e');
+      debugPrint('ToroCorp Music: Error iniciando afinador: $e');
     }
   }
 
-  double _getTargetFrequency() {
-    final notes = _selectedGuitarType == GuitarType.sixString
-        ? PitchDetector.standard6StringTuning
-        : PitchDetector.standard12StringTuning;
+  void _processAudioChunk(Uint8List chunk) {
+    if (!mounted || !_isListening) return;
 
-    if (_lockedStringIndex != null) {
-      final match = notes.firstWhere(
-        (n) => n.stringIndex == _lockedStringIndex,
-        orElse: () => notes.first,
+    _pcmBuffer.addAll(chunk);
+
+    // Cada ~2048 muestras (4096 bytes a 22050 Hz = ~92ms), analizamos la frecuencia
+    const minBufferSize = 4096;
+    if (_pcmBuffer.length >= minBufferSize) {
+      final slice = Uint8List.fromList(_pcmBuffer.sublist(0, minBufferSize));
+      _pcmBuffer.removeRange(0, minBufferSize ~/ 2); // 50% de solapamiento para respuesta ágil
+
+      final detectedFreq = PitchDetector.detectPitchFromPcm16(
+        slice,
+        sampleRate: 22050,
       );
-      return match.frequency;
+
+      if (detectedFreq > 0) {
+        _updateFrequency(detectedFreq);
+      } else {
+        // Silencio o decaimiento de la cuerda
+        if (_currentResult.detectedFrequency > 0) {
+          setState(() {
+            _currentResult = _pitchDetector.analyzeFrequency(
+              0,
+              guitarType: _selectedGuitarType,
+              lockedStringIndex: _lockedStringIndex,
+            );
+          });
+        }
+      }
     }
-    return notes.first.frequency;
   }
 
   void _updateFrequency(double freq) {

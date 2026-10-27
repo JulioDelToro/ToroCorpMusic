@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toro_music_teleprompter/features/tuner/models/tuning_note.dart';
 import 'package:toro_music_teleprompter/features/tuner/services/pitch_detector.dart';
@@ -30,6 +32,30 @@ void main() {
       expect(result.closestNote, equals("E4"));
       expect(result.targetStringIndex, equals(1));
       expect(result.isInTune, isTrue);
+    });
+
+    test('PitchDetector detects real pitch from PCM 16-bit audio stream via autocorrelation', () {
+      // Generar 2048 muestras de una onda senoidal pura a 110.0 Hz (Cuerda La / A2)
+      const sampleRate = 22050;
+      const targetFreq = 110.0;
+      const sampleCount = 2048;
+
+      final pcmBytes = Uint8List(sampleCount * 2);
+      final byteData = ByteData.sublistView(pcmBytes);
+
+      for (int i = 0; i < sampleCount; i++) {
+        final t = i / sampleRate;
+        final sampleVal = (math.sin(2 * math.pi * targetFreq * t) * 20000).toInt();
+        byteData.setInt16(i * 2, sampleVal, Endian.little);
+      }
+
+      final detectedFreq = PitchDetector.detectPitchFromPcm16(pcmBytes, sampleRate: sampleRate);
+      expect((detectedFreq - targetFreq).abs() < 1.0, isTrue,
+          reason: 'Expected ~110.0 Hz, got $detectedFreq Hz');
+
+      final tuning = PitchDetector().analyzeFrequency(detectedFreq);
+      expect(tuning.closestNote, equals('A2'));
+      expect(tuning.isInTune, isTrue);
     });
   });
 

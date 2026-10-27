@@ -765,10 +765,34 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  void _openGuitarTunerScreen() {
-    Navigator.of(context).push(
+  Future<void> _openGuitarTunerScreen() async {
+    // 1. Pausar los servicios de audio de grabación para liberar el micrófono en el hardware
+    final wasAcousticTracking = _acousticService.isTracking;
+    final wasSherpaListening = _sherpaService.isListening;
+
+    if (wasAcousticTracking) {
+      await _acousticService.stopTracking();
+    }
+    if (wasSherpaListening) {
+      await _sherpaService.stopListening();
+    }
+
+    if (!mounted) return;
+
+    // 2. Abrir pantalla de afinador dedicada
+    await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const GuitarTunerScreen()),
     );
+
+    // 3. Al volver, reanudar captura si la pantalla sigue montada
+    if (mounted) {
+      if (wasAcousticTracking) {
+        await _acousticService.startTracking();
+      }
+      if (wasSherpaListening) {
+        await _sherpaService.startListening();
+      }
+    }
   }
 
   void _applyNewSong(SongScript newSong) {

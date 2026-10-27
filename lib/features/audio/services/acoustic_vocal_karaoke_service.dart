@@ -107,6 +107,7 @@ class AcousticVocalKaraokeService {
   Stream<AcousticKaraokeState> get stateStream => _stateController.stream;
   AcousticKaraokeState get currentState => _state;
   bool get isRunning => _isRunning;
+  bool get isTracking => _isRunning;
 
   void updateSong(SongScript newSong) {
     song = newSong;
@@ -485,12 +486,20 @@ class AcousticVocalKaraokeService {
     _stateController.add(_state);
   }
 
-  Future<void> dispose() async {
+  /// Detiene temporalmente el seguimiento de audio liberando el grabador del micrófono
+  Future<void> stopTracking() async {
+    if (!_isRunning) return;
     _isRunning = false;
     await _amplitudeSubscription?.cancel();
+    _amplitudeSubscription = null;
     try {
       await _audioRecorder.stop();
     } catch (_) {}
+    _confirmedSinging = false;
+  }
+
+  Future<void> dispose() async {
+    await stopTracking();
     await _audioRecorder.dispose();
     await _stateController.close();
   }

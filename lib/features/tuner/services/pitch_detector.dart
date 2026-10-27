@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import '../models/tuning_note.dart';
 
 /// Detector y analizador de frecuencias para afinador de guitarra (6 y 12 cuerdas).
@@ -105,5 +106,100 @@ class PitchDetector {
       isInTune: isInTune,
       targetStringIndex: target.stringIndex,
     );
+  }
+
+  /// Detecta la frecuencia fundamental en Hz de un búfer de audio PCM 16-bit
+  /// utilizando autocorrelación normalizada con interpolación parabólica.
+  static double detectPitchFromPcm16(
+    Uint8List pcmBytes, {
+    int sampleRate = 22050,
+    double minFrequency = 70.0,
+    double maxFrequency = 450.0,
+    double silenceRmsThreshold = 0.012,
+  }) {
+    final sampleCount = pcmBytes.length ~/ 2;
+    if (sampleCount < 256) return 0.0;
+
+    final byteData = ByteData.sublistView(pcmBytes);
+    final samples = Float64List(sampleCount);
+
+    double sumSquares = 0.0;
+    for (int i = 0; i < sampleCount; i++) {
+      final s = byteData.getInt16(i * 2, Endian.little) / 32768.0;
+      samples[i] = s;
+      sumSquares += s * s;
+    }
+
+    final rms = math.sqrt(sumSquares / sampleCount);
+    if (rms < silenceRmsThreshold) {
+      return 0.0;
+    }
+
+    final minLag = (sampleRate / maxFrequency).floor();
+    final maxLag = (sampleRate / minFrequency).ceil().clamp(minLag + 1, sampleCount ~/ 2);
+
+    double bestCorrelation = -1.0;
+    int bestLag = -1;
+
+    for (int lag = minLag; lag <= maxLag; lag++) {
+      double sum = 0.0;
+      double sumSquareA = 0.0;
+      double sumSquareB = 0.0;
+
+      final n = sampleCount - lag;
+      for (int i = 0; i < n; i++) {
+        final a = samples[i];
+        final b = samples[i + lag];
+        sum += a * b;
+        sumSquareA += a * a;
+        sumSquareB += b * b;
+      }
+
+      final norm = math.sqrt(sumSquareA * sumSquareB);
+      if (norm > 0) {
+        final correlation = sum / norm;
+        if (correlation > bestCorrelation) {
+          bestCorrelation = correlation;
+          bestLag = lag;
+        }
+      }
+    }
+
+    if (bestCorrelation >= 0.50 && bestLag > minLag && bestLag < maxLag) {
+      // Interpolación parabólica
+      final y0 = _calculateCorrelationAtLag(samples, bestLag - 1, sampleCount);
+      final y1 = bestCorrelation;
+      final y2 = _calculateCorrelationAtLag(samples, bestLag + 1, sampleCount);
+
+      final denom = 2.0 * (2.0 * y1 - y0 - y2);
+      double delta = 0.0;
+      if (denom.abs() > 1e-6) {
+        delta = (y2 - y0) / denom;
+      }
+
+      final trueLag = bestLag + delta;
+      if (trueLag > 0) {
+        return sampleRate / trueLag;
+      }
+    }
+
+    return 0.0;
+  }
+
+  static double _calculateCorrelationAtLag(Float64List samples, int lag, int sampleCount) {
+    if (lag <= 0 || lag >= sampleCount) return 0.0;
+    double sum = 0.0;
+    double sumA = 0.0;
+    double sumB = 0.0;
+    final n = sampleCount - lag;
+    for (int i = 0; i < n; i++) {
+      final a = samples[i];
+      final b = samples[i + lag];
+      sum += a * b;
+      sumA += a * a;
+      sumB += b * b;
+    }
+    final norm = math.sqrt(sumA * sumB);
+    return norm > 0 ? sum / norm : 0.0;
   }
 }
