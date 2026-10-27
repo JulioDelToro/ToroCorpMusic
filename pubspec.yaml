@@ -20,8 +20,7 @@ dependencies:
   record: ^7.1.2
   audio_session: ^0.2.4
   path_provider: ^2.1.6
-  file_picker: ^13.3.0
-  read_pdf_text: ^0.3.1
+  sherpa_onnx: ^2.0.1
 
 dev_dependencies:
   flutter_test:
@@ -33,3 +32,4 @@ flutter:
   assets:
     - assets/videos/
     - assets/images/
+    - assets/models/sherpa/

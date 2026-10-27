@@ -1,6 +1,10 @@
-
 # SDD workspace
 .superpowers/
+
+# Loose root media
+/*.mp4
+/*.jpeg
+/*.jpg
 
 # Flutter build artifacts
 .dart_tool/

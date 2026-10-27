@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../audio/services/acoustic_vocal_karaoke_service.dart';
+import '../../audio/services/sherpa_onnx_vocal_service.dart';
 import '../../audio/services/vocal_alignment_matcher.dart';
 import '../../camera/services/beauty_shader_service.dart';
 import '../../camera/services/hands_free_trigger_service.dart';
@@ -116,6 +117,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
   // Motor Acústico de Karaoke en Tiempo Real (Continuo, sin bips ni desconexiones)
   late AcousticVocalKaraokeService _acousticService;
+  late final SherpaOnnxVocalService _sherpaService;
 
   // Animación del Menú Hamburguesa (☰ <-> ✕)
   late final AnimationController _menuAnimationController;
@@ -161,6 +163,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
     _vocalMatcher = VocalAlignmentMatcher(_currentSong);
     _acousticService = AcousticVocalKaraokeService(song: _currentSong);
+    _sherpaService = SherpaOnnxVocalService(
+      onUtterance: (utterance) {
+        _vocalMatcher.processUtterance(utterance);
+      },
+      onWord: (word) {
+        _vocalMatcher.processSpokenWord(word);
+      },
+    );
 
     _teleprompterController = TeleprompterController(
       initialSong: _currentSong,
@@ -196,6 +206,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       }
       if (micGranted) {
         await _startAcousticKaraoke();
+        unawaited(_sherpaService.initialize());
       }
 
       if (!cameraGranted || !micGranted) {
@@ -207,6 +218,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       // Entorno de pruebas o fallback
       await _initializeCamera();
       await _startAcousticKaraoke();
+      unawaited(_sherpaService.initialize());
     }
   }
 
@@ -318,6 +330,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     _recordingTimer?.cancel();
     _cameraController?.dispose();
     _acousticService.dispose();
+    _sherpaService.dispose();
     _menuAnimationController.dispose();
     _beautyService.dispose();
     _triggerService.dispose();
