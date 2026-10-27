@@ -193,6 +193,7 @@ class SherpaOnnxVocalService {
       // Reiniciar stream si alcanzó endpoint (silencio de frase)
       if (_recognizer!.isEndpoint(_stream!)) {
         _recognizer!.reset(_stream!);
+        _lastRecognizedText = '';
       }
     } catch (e) {
       debugPrint('ToroCorp Music: Error decodificando audio chunk: $e');

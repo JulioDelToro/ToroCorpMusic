@@ -167,9 +167,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       onUtterance: (utterance) {
         _vocalMatcher.processUtterance(utterance);
       },
-      onWord: (word) {
-        _vocalMatcher.processSpokenWord(word);
-      },
     );
 
     _teleprompterController = TeleprompterController(
@@ -206,7 +203,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       }
       if (micGranted) {
         await _startAcousticKaraoke();
-        unawaited(_sherpaService.initialize());
+        unawaited(_sherpaService.initialize().then((ready) {
+          if (ready && mounted) {
+            _sherpaService.startListening();
+          }
+        }));
       }
 
       if (!cameraGranted || !micGranted) {
@@ -218,7 +219,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       // Entorno de pruebas o fallback
       await _initializeCamera();
       await _startAcousticKaraoke();
-      unawaited(_sherpaService.initialize());
+      unawaited(_sherpaService.initialize().then((ready) {
+        if (ready && mounted) {
+          _sherpaService.startListening();
+        }
+      }));
     }
   }
 
@@ -365,6 +370,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       _recordingSeconds = 0;
       if (_isMenuOpen) _toggleMenu();
     });
+
+    if (_sherpaService.isInitialized && !_sherpaService.isListening) {
+      _sherpaService.startListening();
+    }
 
     // Iniciar temporizador de grabación
     _recordingTimer?.cancel();
