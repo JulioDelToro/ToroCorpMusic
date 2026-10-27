@@ -167,6 +167,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       onUtterance: (utterance) {
         _vocalMatcher.processUtterance(utterance);
       },
+      onEndpoint: () {
+        _vocalMatcher.resetUtterance();
+      },
       onAudioLevel: (db, maxDb) {
         _acousticService.processAudioDb(db, maxDb);
       },
@@ -407,8 +410,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       }
     }
 
-    // Asegurar que el motor de karaoke acústico esté activo y sincronizado
-    if (!_acousticService.isRunning) {
+    // Asegurar que el motor de seguimiento vocal esté activo y sincronizado
+    if (!_sherpaService.isListening && !_acousticService.isRunning) {
       await _acousticService.startTracking();
     }
   }

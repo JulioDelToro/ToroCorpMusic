@@ -28,11 +28,13 @@ class SherpaOnnxVocalService {
   final void Function(String utterance)? onUtterance;
   final void Function(String word)? onWord;
   final void Function(double db, double maxDb)? onAudioLevel;
+  final VoidCallback? onEndpoint;
 
   SherpaOnnxVocalService({
     this.onUtterance,
     this.onWord,
     this.onAudioLevel,
+    this.onEndpoint,
   });
 
   bool get isInitialized => _isInitialized;
@@ -210,6 +212,7 @@ class SherpaOnnxVocalService {
       if (_recognizer!.isEndpoint(_stream!)) {
         _recognizer!.reset(_stream!);
         _lastRecognizedText = '';
+        onEndpoint?.call();
       }
     } catch (e) {
       debugPrint('ToroCorp Music: Error decodificando audio chunk: $e');
