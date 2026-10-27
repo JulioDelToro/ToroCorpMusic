@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
@@ -26,10 +27,12 @@ class SherpaOnnxVocalService {
 
   final void Function(String utterance)? onUtterance;
   final void Function(String word)? onWord;
+  final void Function(double db, double maxDb)? onAudioLevel;
 
   SherpaOnnxVocalService({
     this.onUtterance,
     this.onWord,
+    this.onAudioLevel,
   });
 
   bool get isInitialized => _isInitialized;
@@ -166,9 +169,22 @@ class SherpaOnnxVocalService {
       final sampleCount = chunk.length ~/ 2;
       final floatSamples = Float32List(sampleCount);
 
+      double sumSquares = 0.0;
+      double peak = 0.0;
       for (int i = 0; i < sampleCount; i++) {
         final sample16 = byteData.getInt16(i * 2, Endian.little);
-        floatSamples[i] = sample16 / 32768.0;
+        final floatVal = sample16 / 32768.0;
+        floatSamples[i] = floatVal;
+        sumSquares += floatVal * floatVal;
+        final abs = floatVal.abs();
+        if (abs > peak) peak = abs;
+      }
+
+      if (sampleCount > 0) {
+        final rms = math.sqrt(sumSquares / sampleCount);
+        final db = rms > 1e-5 ? (20.0 * math.log(rms) / math.ln10) : -100.0;
+        final maxDb = peak > 1e-5 ? (20.0 * math.log(peak) / math.ln10) : -100.0;
+        onAudioLevel?.call(db, maxDb);
       }
 
       _stream!.acceptWaveform(samples: floatSamples, sampleRate: 16000);

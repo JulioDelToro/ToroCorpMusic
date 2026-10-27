@@ -120,20 +120,20 @@ void main() {
       ]);
       final matcher = VocalAlignmentMatcher(song);
 
-      // Sung correctly: "de"
+      // Sings first word: "de" -> matches and advances active pointer to next word (1: 'música')
       matcher.processSpokenWord('de');
-      expect(matcher.currentState.currentWordIndex, equals(0));
+      expect(matcher.currentState.currentWordIndex, equals(1));
 
       // User says random unrelated word: "carro" / "mesa"
       matcher.processSpokenWord('carro');
-      expect(matcher.currentState.currentWordIndex, equals(0)); // Does NOT advance!
+      expect(matcher.currentState.currentWordIndex, equals(1)); // Does NOT advance!
 
       matcher.processSpokenWord('mesa');
-      expect(matcher.currentState.currentWordIndex, equals(0)); // Still does NOT advance!
+      expect(matcher.currentState.currentWordIndex, equals(1)); // Still does NOT advance!
 
-      // User sings actual lyric: "música"
+      // User sings actual lyric: "música" -> matches and advances to next word (2: 'ligera')
       matcher.processSpokenWord('musica');
-      expect(matcher.currentState.currentWordIndex, equals(1)); // Advances!
+      expect(matcher.currentState.currentWordIndex, equals(2)); // Advances!
     });
   });
 }

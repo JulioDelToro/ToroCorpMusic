@@ -167,6 +167,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       onUtterance: (utterance) {
         _vocalMatcher.processUtterance(utterance);
       },
+      onAudioLevel: (db, maxDb) {
+        _acousticService.processAudioDb(db, maxDb);
+      },
     );
 
     _teleprompterController = TeleprompterController(
@@ -202,10 +205,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         await _initializeCamera();
       }
       if (micGranted) {
-        await _startAcousticKaraoke();
-        unawaited(_sherpaService.initialize().then((ready) {
+        unawaited(_sherpaService.initialize().then((ready) async {
           if (ready && mounted) {
-            _sherpaService.startListening();
+            final started = await _sherpaService.startListening();
+            if (!started && mounted) {
+              await _startAcousticKaraoke();
+            }
+          } else if (mounted) {
+            await _startAcousticKaraoke();
           }
         }));
       }
@@ -218,10 +225,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     } catch (_) {
       // Entorno de pruebas o fallback
       await _initializeCamera();
-      await _startAcousticKaraoke();
-      unawaited(_sherpaService.initialize().then((ready) {
+      unawaited(_sherpaService.initialize().then((ready) async {
         if (ready && mounted) {
-          _sherpaService.startListening();
+          final started = await _sherpaService.startListening();
+          if (!started && mounted) {
+            await _startAcousticKaraoke();
+          }
+        } else if (mounted) {
+          await _startAcousticKaraoke();
         }
       }));
     }
@@ -786,11 +797,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
     // 3. Al volver, reanudar captura si la pantalla sigue montada
     if (mounted) {
-      if (wasAcousticTracking) {
-        await _acousticService.startTracking();
-      }
       if (wasSherpaListening) {
         await _sherpaService.startListening();
+      } else if (wasAcousticTracking) {
+        await _acousticService.startTracking();
       }
     }
   }
@@ -798,8 +808,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   void _applyNewSong(SongScript newSong) {
     setState(() {
       _currentSong = newSong;
-      _vocalMatcher.dispose();
-      _vocalMatcher = VocalAlignmentMatcher(_currentSong);
+      _vocalMatcher.updateSong(_currentSong);
       _acousticService.updateSong(_currentSong);
       _teleprompterController.updateSong(_currentSong);
     });

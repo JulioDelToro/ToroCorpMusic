@@ -8,25 +8,49 @@ import 'audio_bandpass_filter.dart';
 /// 1. Solo avanza si la palabra cantada/hablada coincide fonéticamente con la letra.
 /// 2. Si el músico pausa para un requinto o solo de guitarra, se congela pacientemente y no avanza en falso.
 class VocalAlignmentMatcher {
-  final SongScript song;
+  SongScript _song;
   final StreamController<AlignmentState> _stateController = StreamController<AlignmentState>.broadcast();
 
   AlignmentState _currentState = const AlignmentState();
   int _lastUtteranceWordCount = 0;
 
-  VocalAlignmentMatcher(this.song) {
+  VocalAlignmentMatcher(SongScript song) : _song = song {
     _stateController.add(_currentState);
   }
 
+  SongScript get song => _song;
   Stream<AlignmentState> get alignmentStream => _stateController.stream;
   AlignmentState get currentState => _currentState;
 
+  void updateSong(SongScript newSong) {
+    _song = newSong;
+    reset();
+  }
+
   /// Valida si una palabra pronunciada coincide fonéticamente con la palabra esperada en el guion
-  static bool verifyWordMatch(String targetWord, String candidateWord, {double minConfidence = 0.65}) {
+  static bool verifyWordMatch(String targetWord, String candidateWord, {double minConfidence = 0.58}) {
     final cleanTarget = AudioBandpassFilter.normalizeWord(targetWord);
     final cleanCandidate = AudioBandpassFilter.normalizeWord(candidateWord);
     if (cleanTarget.isEmpty || cleanCandidate.isEmpty) return false;
-    return AudioBandpassFilter.similarity(cleanTarget, cleanCandidate) >= minConfidence;
+    final sim = AudioBandpassFilter.similarity(cleanTarget, cleanCandidate);
+    return _isMatch(cleanCandidate, cleanTarget, sim);
+  }
+
+  static bool _isMatch(String spoken, String target, double sim) {
+    final cleanTarget = AudioBandpassFilter.normalizeWord(target);
+    final cleanSpoken = AudioBandpassFilter.normalizeWord(spoken);
+    if (cleanTarget.isEmpty || cleanSpoken.isEmpty) return false;
+
+    // Coincidencia exacta (sin acentos / minúsculas)
+    if (cleanTarget == cleanSpoken) return true;
+
+    // Palabras cortas (<= 3 letras como "de", "la", "el", "que", "y", "no"):
+    if (cleanTarget.length <= 3) {
+      return sim >= 0.50 || cleanSpoken.startsWith(cleanTarget) || cleanTarget.startsWith(cleanSpoken);
+    }
+
+    // Palabras estándar y largas:
+    return sim >= 0.58;
   }
 
   /// Procesa una frase reconocida continuamente por el micrófono (karaoke tracking)
@@ -62,7 +86,7 @@ class VocalAlignmentMatcher {
 
     if (currentLine >= lines.length) return;
 
-    // Si estamos en una sección instrumental (Requinto / Solo), verificar si ya comenzó la siguiente estrofa
+    // 1. Si estamos en una sección instrumental (Requinto / Solo), verificar si ya comenzó la siguiente estrofa
     if (lines[currentLine].isInstrumental) {
       int nextVocalLine = currentLine + 1;
       while (nextVocalLine < lines.length && lines[nextVocalLine].isInstrumental) {
@@ -71,10 +95,11 @@ class VocalAlignmentMatcher {
       if (nextVocalLine < lines.length && lines[nextVocalLine].tokens.isNotEmpty) {
         final targetWord = lines[nextVocalLine].tokens.first.word;
         final sim = AudioBandpassFilter.similarity(cleanSpoken, targetWord);
-        if (sim >= 0.65) {
+        if (_isMatch(cleanSpoken, targetWord, sim)) {
+          final nextWord = lines[nextVocalLine].tokens.length > 1 ? 1 : 0;
           _currentState = _currentState.copyWith(
             currentLineIndex: nextVocalLine,
-            currentWordIndex: 0,
+            currentWordIndex: nextWord,
             confidence: sim,
             lastSpokenWord: rawSpokenWord,
             isSinging: true,
@@ -86,7 +111,7 @@ class VocalAlignmentMatcher {
       return; // Permanece en requinto
     }
 
-    // Ventana de búsqueda secuencial controlada: revisa la palabra actual y las siguientes 2 palabras
+    // 2. Ventana de búsqueda secuencial controlada: revisa la palabra actual y las siguientes 2 palabras
     int matchedWordIndex = -1;
     int matchedLineIndex = currentLine;
     double bestSimilarity = 0.0;
@@ -97,7 +122,7 @@ class VocalAlignmentMatcher {
       if (checkWord < currentTokens.length) {
         final targetWord = currentTokens[checkWord].word;
         final sim = AudioBandpassFilter.similarity(cleanSpoken, targetWord);
-        if (sim >= 0.65 && sim > bestSimilarity) {
+        if (_isMatch(cleanSpoken, targetWord, sim) && sim > bestSimilarity) {
           bestSimilarity = sim;
           matchedWordIndex = checkWord;
           matchedLineIndex = currentLine;
@@ -105,26 +130,47 @@ class VocalAlignmentMatcher {
       }
     }
 
-    // Si está en la última palabra de la línea, revisar si ya empezó la primera de la siguiente línea cantada
-    if (matchedWordIndex == -1 && currentWord >= currentTokens.length - 1) {
+    // 3. Si está en las últimas palabras de la línea, revisar si ya empezó la primera de la siguiente línea cantada
+    if (matchedWordIndex == -1 && currentWord >= currentTokens.length - 2) {
       int nextVocalLine = currentLine + 1;
       while (nextVocalLine < lines.length && lines[nextVocalLine].isInstrumental) {
         nextVocalLine++;
       }
       if (nextVocalLine < lines.length && lines[nextVocalLine].tokens.isNotEmpty) {
-        final sim = AudioBandpassFilter.similarity(cleanSpoken, lines[nextVocalLine].tokens.first.word);
-        if (sim >= 0.65) {
-          bestSimilarity = sim;
-          matchedWordIndex = 0;
-          matchedLineIndex = nextVocalLine;
+        final targetWord = lines[nextVocalLine].tokens.first.word;
+        final sim = AudioBandpassFilter.similarity(cleanSpoken, targetWord);
+        if (_isMatch(cleanSpoken, targetWord, sim)) {
+          final nextWord = lines[nextVocalLine].tokens.length > 1 ? 1 : 0;
+          _currentState = _currentState.copyWith(
+            currentLineIndex: nextVocalLine,
+            currentWordIndex: nextWord,
+            confidence: sim,
+            lastSpokenWord: rawSpokenWord,
+            isSinging: true,
+          );
+          _stateController.add(_currentState);
+          return;
         }
       }
     }
 
+    // 4. Si coincidió en la línea actual, avanzar el cursor a la palabra siguiente (matchedWordIndex + 1)
     if (matchedWordIndex != -1) {
+      int nextWord = matchedWordIndex + 1;
+      int nextLine = matchedLineIndex;
+
+      if (nextWord >= currentTokens.length) {
+        if (matchedLineIndex + 1 < lines.length) {
+          nextLine = matchedLineIndex + 1;
+          nextWord = 0;
+        } else {
+          nextWord = currentTokens.length;
+        }
+      }
+
       _currentState = _currentState.copyWith(
-        currentLineIndex: matchedLineIndex,
-        currentWordIndex: matchedWordIndex,
+        currentLineIndex: nextLine,
+        currentWordIndex: nextWord,
         confidence: bestSimilarity,
         lastSpokenWord: rawSpokenWord,
         isSinging: true,

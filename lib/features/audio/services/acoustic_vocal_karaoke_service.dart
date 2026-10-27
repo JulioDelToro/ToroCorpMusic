@@ -199,10 +199,19 @@ class AcousticVocalKaraokeService {
     }
   }
 
+  /// Procesa niveles de decibeles de audio desde el flujo unificado del micrófono
+  void processAudioDb(double db, double maxDb) {
+    if (_stateController.isClosed) return;
+    _isRunning = true;
+    _handleAmplitudeValues(db, maxDb);
+  }
+
   void _handleAmplitude(Amplitude amp) {
+    _handleAmplitudeValues(amp.current, amp.max);
+  }
+
+  void _handleAmplitudeValues(double db, double maxDb) {
     if (!_isRunning || _stateController.isClosed) return;
-    final double db = amp.current;
-    final double maxDb = amp.max;
     final double deltaDb = _lastDb > -99.0 ? (db - _lastDb) : 0.0;
     _lastDb = db;
 
