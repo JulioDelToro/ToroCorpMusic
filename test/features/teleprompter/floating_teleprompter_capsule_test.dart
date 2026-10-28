@@ -130,4 +130,75 @@ void main() {
     await tester.pump();
     expect(nextLineTapped, isTrue);
   });
+
+  testWidgets('FloatingTeleprompterCapsule Voz button switches to Reiniciar on tap and resets on second tap', (tester) async {
+    bool resetTriggered = false;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: FloatingTeleprompterCapsule(
+          currentLine: const LyricLine(tokens: [LyricToken(word: 'Hola')]),
+          currentWordIndex: 0,
+          onResetTap: () => resetTriggered = true,
+        ),
+      ),
+    ));
+
+    // Estado inicial: botón dice 'Voz'
+    expect(find.text('Voz'), findsOneWidget);
+    expect(find.text('Reiniciar'), findsNothing);
+
+    // Primer toque en 'Voz': cambia a 'Reiniciar'
+    await tester.tap(find.text('Voz'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reiniciar'), findsOneWidget);
+    expect(find.text('Voz'), findsNothing);
+    expect(resetTriggered, isFalse);
+
+    // Segundo toque en 'Reiniciar': ejecuta el reinicio de canción
+    await tester.tap(find.text('Reiniciar'));
+    await tester.pumpAndSettle();
+
+    expect(resetTriggered, isTrue);
+    expect(find.text('Voz'), findsOneWidget);
+  });
+
+  testWidgets('FloatingTeleprompterCapsule allows scrolling down and tapping future lines to update song position', (tester) async {
+    final lines = [
+      const LyricLine(tokens: [LyricToken(word: 'Línea1_palabra1'), LyricToken(word: 'Línea1_palabra2')]),
+      const LyricLine(tokens: [LyricToken(word: 'Línea2_palabra1'), LyricToken(word: 'Línea2_palabra2')]),
+      const LyricLine(tokens: [LyricToken(word: 'Línea3_palabra1'), LyricToken(word: 'Línea3_palabra2')]),
+    ];
+
+    int tappedLine = -1;
+    int tappedWord = -1;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: FloatingTeleprompterCapsule(
+          allLines: lines,
+          currentLineIndex: 0,
+          currentWordIndex: 0,
+          onLineWordTap: (l, w) {
+            tappedLine = l;
+            tappedWord = w;
+          },
+        ),
+      ),
+    ));
+
+    // Scroll hacia abajo para ver la línea 3
+    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -100));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Línea3_palabra2'), findsOneWidget);
+
+    // Tocar una palabra de la línea 3 para saltar la canción hasta allí
+    await tester.tap(find.text('Línea3_palabra2'));
+    await tester.pumpAndSettle();
+
+    expect(tappedLine, equals(2));
+    expect(tappedWord, equals(1));
+  });
 }

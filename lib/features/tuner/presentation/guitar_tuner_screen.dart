@@ -6,6 +6,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../models/tuning_note.dart';
 import '../services/pitch_detector.dart';
+import '../widgets/guitar_visualizer_widget.dart';
 
 /// Pantalla dedicada de afinador de guitarra para 6 y 12 cuerdas.
 /// Permite afinar cuerda por cuerda con retroalimentación visual precisa en tiempo real.
@@ -152,10 +153,6 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final notes = _selectedGuitarType == GuitarType.sixString
-        ? PitchDetector.standard6StringTuning
-        : PitchDetector.standard12StringTuning;
-
     return Scaffold(
       backgroundColor: AppColors.pureBlackOled,
       appBar: AppBar(
@@ -237,121 +234,16 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
 
             // Medidor Central de Cents y Aguja
             Expanded(
-              flex: 5,
               child: _buildGaugeDisplay(),
             ),
 
-            // Selector Cuerda por Cuerda (Pala de Guitarra Interactiva)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceDark.withAlpha(220),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(color: AppColors.borderDark, width: 1.2),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Afinar cuerda por cuerda:',
-                        style: TextStyle(
-                          color: AppColors.textWhite,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => _selectString(null),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _lockedStringIndex == null
-                                ? AppColors.chordAmber
-                                : Colors.white10,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            'Automático',
-                            style: TextStyle(
-                              color: _lockedStringIndex == null ? Colors.black : Colors.white70,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Lista horizontal de cuerdas tocables
-                  SizedBox(
-                    height: 64,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: notes.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
-                      itemBuilder: (context, idx) {
-                        final note = notes[idx];
-                        final isSelected = _lockedStringIndex == note.stringIndex;
-                        final isInTune = isSelected && _currentResult.isInTune;
-
-                        final Color borderColor = isSelected
-                            ? (isInTune ? AppColors.tunerInTuneGreen : AppColors.chordAmber)
-                            : AppColors.borderDark;
-
-                        final Color bgColor = isSelected
-                            ? (isInTune
-                                ? AppColors.tunerInTuneGreen.withAlpha(35)
-                                : AppColors.chordAmber.withAlpha(35))
-                            : AppColors.cardDark;
-
-                        return GestureDetector(
-                          onTap: () => _selectString(note.stringIndex),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            width: 62,
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            decoration: BoxDecoration(
-                              color: bgColor,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  note.name,
-                                  style: TextStyle(
-                                    color: isSelected ? AppColors.textWhite : Colors.white70,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${note.stringIndex}ª',
-                                  style: TextStyle(
-                                    color: isSelected ? AppColors.chordAmber : AppColors.textSecondary,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
+            // Guitarra Visual Interactiva con Pastillas Seleccionables y Cuerdas en Color
+            GuitarVisualizerWidget(
+              guitarType: _selectedGuitarType,
+              lockedStringIndex: _lockedStringIndex,
+              detectedStringIndex: _currentResult.targetStringIndex,
+              currentResult: _currentResult,
+              onSelectString: _selectString,
             ),
           ],
         ),
@@ -422,24 +314,24 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // Nota Principal en Letra Grande
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
             decoration: BoxDecoration(
               color: stateColor.withAlpha(25),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: stateColor.withAlpha(120), width: 2),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: stateColor.withAlpha(120), width: 1.8),
               boxShadow: inTune
                   ? [
                       BoxShadow(
                         color: stateColor.withAlpha(160),
-                        blurRadius: 24,
-                        spreadRadius: 4,
+                        blurRadius: 20,
+                        spreadRadius: 3,
                       )
                     ]
                   : null,
@@ -447,7 +339,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
             child: Text(
               _currentResult.closestNote,
               style: TextStyle(
-                fontSize: 52,
+                fontSize: 42,
                 fontWeight: FontWeight.bold,
                 color: inTune ? AppColors.tunerInTuneGreen : AppColors.textWhite,
                 fontFamily: 'monospace',
@@ -456,7 +348,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
 
           // Frecuencia en Hz y Meta
           Text(
@@ -465,12 +357,12 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                 : 'Esperando sonido...',
             style: const TextStyle(
               color: AppColors.textSecondary,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
 
           // Barra / Aguja de Afinación (-50 a +50 cents)
           Column(
@@ -481,19 +373,19 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('-50', style: TextStyle(color: Colors.white30, fontSize: 10)),
-                    Text('-25', style: TextStyle(color: Colors.white30, fontSize: 10)),
-                    Text('0', style: TextStyle(color: AppColors.tunerInTuneGreen, fontSize: 12, fontWeight: FontWeight.bold)),
-                    Text('+25', style: TextStyle(color: Colors.white30, fontSize: 10)),
-                    Text('+50', style: TextStyle(color: Colors.white30, fontSize: 10)),
+                    Text('-50', style: TextStyle(color: Colors.white30, fontSize: 9)),
+                    Text('-25', style: TextStyle(color: Colors.white30, fontSize: 9)),
+                    Text('0', style: TextStyle(color: AppColors.tunerInTuneGreen, fontSize: 11, fontWeight: FontWeight.bold)),
+                    Text('+25', style: TextStyle(color: Colors.white30, fontSize: 9)),
+                    Text('+50', style: TextStyle(color: Colors.white30, fontSize: 9)),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
 
               // Riel y Aguja Dinámica
               SizedBox(
-                height: 38,
+                height: 32,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final width = constraints.maxWidth;
@@ -506,7 +398,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                       children: [
                         // Riel de fondo
                         Container(
-                          height: 8,
+                          height: 7,
                           decoration: BoxDecoration(
                             color: AppColors.cardDark,
                             borderRadius: BorderRadius.circular(4),
@@ -515,8 +407,8 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
 
                         // Zona central afinada (verde)
                         Container(
-                          width: 24,
-                          height: 8,
+                          width: 22,
+                          height: 7,
                           decoration: BoxDecoration(
                             color: AppColors.tunerInTuneGreen.withAlpha(120),
                             borderRadius: BorderRadius.circular(4),
@@ -530,14 +422,14 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                             children: [
                               Container(
                                 width: 6,
-                                height: 26,
+                                height: 22,
                                 decoration: BoxDecoration(
                                   color: stateColor,
                                   borderRadius: BorderRadius.circular(3),
                                   boxShadow: [
                                     BoxShadow(
                                       color: stateColor.withAlpha(200),
-                                      blurRadius: 8,
+                                      blurRadius: 6,
                                       spreadRadius: 1,
                                     ),
                                   ],
@@ -552,26 +444,26 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                 ),
               ),
 
-              const SizedBox(height: 6),
+              const SizedBox(height: 3),
               Text(
                 isDetected ? '${cents >= 0 ? '+' : ''}${cents.toStringAsFixed(1)} cents' : '0.0 cents',
                 style: TextStyle(
                   color: stateColor,
                   fontWeight: FontWeight.bold,
-                  fontSize: 13,
+                  fontSize: 12,
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
 
           // Banner de Estado
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
               color: stateColor.withAlpha(30),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: stateColor.withAlpha(100)),
             ),
             child: Text(
@@ -579,7 +471,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
               style: TextStyle(
                 color: stateColor,
                 fontWeight: FontWeight.bold,
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
           ),

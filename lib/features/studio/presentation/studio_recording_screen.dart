@@ -847,6 +847,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 animation: _teleprompterController,
                 builder: (context, _) {
                   return FloatingTeleprompterCapsule(
+                    allLines: _teleprompterController.song.lines,
+                    currentLineIndex: _teleprompterController.activeLineIndex,
                     currentLine: _teleprompterController.currentLine,
                     nextLine: _teleprompterController.nextLine,
                     currentWordIndex: _teleprompterController.activeWordIndex,
@@ -861,10 +863,16 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                     onWordTap: (wordIdx) {
                       _teleprompterController.jumpToWordInCurrentLine(wordIdx);
                     },
+                    onLineWordTap: (lineIdx, wordIdx) {
+                      _teleprompterController.jumpTo(lineIdx, wordIdx);
+                    },
                     onNextLineTap: () {
                       _teleprompterController.jumpToNextLine();
                     },
-                    onResetTap: _teleprompterController.reset,
+                    onResetTap: () {
+                      _teleprompterController.reset();
+                      _vocalMatcher.resetUtterance();
+                    },
                   );
                 },
               ),

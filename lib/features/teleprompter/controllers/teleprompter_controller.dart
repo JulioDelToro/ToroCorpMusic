@@ -114,11 +114,14 @@ class TeleprompterController extends ChangeNotifier {
   }
 
   void jumpTo(int lineIndex, int wordIndex) {
-    _activeLineIndex = lineIndex;
-    _activeWordIndex = wordIndex;
+    if (_song.lines.isEmpty) return;
+    _activeLineIndex = lineIndex.clamp(0, _song.lines.length - 1);
+    final tokens = _song.lines[_activeLineIndex].tokens;
+    _activeWordIndex = tokens.isEmpty ? 0 : wordIndex.clamp(0, tokens.length - 1);
     _isInstrumentalBreak = false;
     _instrumentalLabel = null;
-    acousticService?.jumpTo(lineIndex, wordIndex);
+    acousticService?.jumpTo(_activeLineIndex, _activeWordIndex);
+    matcher?.jumpTo(_activeLineIndex, _activeWordIndex);
     notifyListeners();
   }
 
@@ -188,6 +191,7 @@ class TeleprompterController extends ChangeNotifier {
     _isInstrumentalBreak = false;
     _instrumentalLabel = null;
     acousticService?.reset();
+    matcher?.reset();
     notifyListeners();
   }
 
