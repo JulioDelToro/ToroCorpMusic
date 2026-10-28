@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import '../models/recording_mode.dart';
+import '../../scripts/models/lyric_token.dart';
+import '../../scripts/models/song_script.dart';
 
 /// Servicio de composición y preparación de grabación de video.
 /// Coordina la codificación de hardware (H.264/AAC), el modo de salida (limpio vs con guion),
@@ -123,79 +125,223 @@ class VideoRecordingCompositor {
     return outputPath;
   }
 
-  /// Renderiza la cápsula del teleprompter como imagen PNG de alta definición con fondo transparente
+  /// Renderiza la cápsula del teleprompter exactamente igual a la Dynamic Island de la pantalla
+  /// incluyendo el botón Voz, el indicador REC con temporizador, divisor vertical,
+  /// 3 líneas de letra con karaoke resaltado palabra por palabra y el botón de menú circular (☰).
   Future<String> renderTeleprompterOverlayImage({
-    required String title,
-    required String currentLine,
+    LyricLine? currentLyricLine,
+    LyricLine? nextLyricLine,
+    LyricLine? thirdLyricLine,
+    int activeWordIndex = -1,
+    int elapsedSeconds = 0,
+    bool isSinging = true,
+    Color highlightColor = const Color(0xFFFFD54F),
+    String? title,
+    String? currentLine,
     String? nextLine,
     String? chords,
     required String outputPath,
     int width = 1080,
-    int height = 320,
+    int height = 330,
   }) async {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
 
-    // Fondo cápsula oscura OLED con esquinas redondeadas
-    final rrect = ui.RRect.fromRectAndRadius(
-      ui.Rect.fromLTWH(30, 20, width.toDouble() - 60, height.toDouble() - 40),
-      const ui.Radius.circular(28),
-    );
+    final capsuleW = width.toDouble() - 80.0;
+    final capsuleH = height.toDouble() - 40.0;
+    final capsuleRect = ui.Rect.fromLTWH(40, 20, capsuleW, capsuleH);
+
+    // 1. Fondo de la cápsula: Negro puro OLED (0xF2000000) con bordes redondeados
+    final rrect = ui.RRect.fromRectAndRadius(capsuleRect, const ui.Radius.circular(54));
     final bgPaint = ui.Paint()
-      ..color = const ui.Color(0xE60A0A0A)
+      ..color = const ui.Color(0xF40A0A0A)
       ..style = ui.PaintingStyle.fill;
     canvas.drawRRect(rrect, bgPaint);
 
-    // Borde elegante sutil
+    // Borde sutil elegante
     final borderPaint = ui.Paint()
       ..color = const ui.Color(0x33FFFFFF)
       ..style = ui.PaintingStyle.stroke
       ..strokeWidth = 2.0;
     canvas.drawRRect(rrect, borderPaint);
 
-    // Cabecera superior: Logo e identificador
-    final headerBuilder = ui.ParagraphBuilder(
-      ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 22, maxLines: 1),
+    // ── 2. Columna Izquierda: Botón "Voz" y "● REC mm:ss" ──
+    const vozLeft = 75.0;
+    const vozTop = 50.0;
+    const vozWidth = 160.0;
+    const vozHeight = 78.0;
+
+    // Pastilla "Voz" dorada con halo
+    final vozRect = ui.RRect.fromRectAndRadius(
+      const ui.Rect.fromLTWH(vozLeft, vozTop, vozWidth, vozHeight),
+      const ui.Radius.circular(39),
+    );
+    final vozBg = ui.Paint()
+      ..color = const ui.Color(0x28F5A623)
+      ..style = ui.PaintingStyle.fill;
+    canvas.drawRRect(vozRect, vozBg);
+
+    final vozBorder = ui.Paint()
+      ..color = const ui.Color(0xFFF5A623)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawRRect(vozRect, vozBorder);
+
+    // Texto "🎤 Voz"
+    final vozBuilder = ui.ParagraphBuilder(
+      ui.ParagraphStyle(textAlign: ui.TextAlign.center, fontSize: 30, maxLines: 1),
     )
       ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFF5A623), fontWeight: ui.FontWeight.bold))
-      ..addText('🎤 TOROCORP MUSIC  ')
-      ..pushStyle(ui.TextStyle(color: const ui.Color(0x99FFFFFF), fontSize: 18))
-      ..addText('•  ${title.toUpperCase()}');
-    final headerPara = headerBuilder.build()..layout(ui.ParagraphConstraints(width: width - 120));
-    canvas.drawParagraph(headerPara, const ui.Offset(60, 42));
+      ..addText('🎤 Voz');
+    final vozPara = vozBuilder.build()..layout(const ui.ParagraphConstraints(width: vozWidth));
+    canvas.drawParagraph(vozPara, const ui.Offset(vozLeft, vozTop + 20));
 
-    // Acordes si existen
-    double yOffset = 85;
-    if (chords != null && chords.isNotEmpty) {
+    // Indicador REC con punto rojo y temporizador
+    final minStr = (elapsedSeconds ~/ 60).toString().padLeft(2, '0');
+    final secStr = (elapsedSeconds % 60).toString().padLeft(2, '0');
+
+    final redDot = ui.Paint()
+      ..color = const ui.Color(0xFFFF3B30)
+      ..style = ui.PaintingStyle.fill;
+    canvas.drawCircle(const ui.Offset(102, 172), 8.5, redDot);
+
+    final recBuilder = ui.ParagraphBuilder(
+      ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 25, maxLines: 1),
+    )
+      ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFFF3B30), fontWeight: ui.FontWeight.bold))
+      ..addText('REC $minStr:$secStr');
+    final recPara = recBuilder.build()..layout(const ui.ParagraphConstraints(width: 145));
+    canvas.drawParagraph(recPara, const ui.Offset(122, 158));
+
+    // ── 3. Separador Vertical ──
+    final dividerPaint = ui.Paint()
+      ..color = const ui.Color(0x38FFFFFF)
+      ..strokeWidth = 2.0;
+    canvas.drawLine(const ui.Offset(265, 45), const ui.Offset(265, 245), dividerPaint);
+
+    // ── 4. Columna Derecha: Botón de Menú Circular (☰) ──
+    final menuCenterX = width.toDouble() - 110.0;
+    final menuCenterY = height.toDouble() / 2.0;
+    const menuRadius = 46.0;
+
+    final menuCircle = ui.Paint()
+      ..color = const ui.Color(0x28FFFFFF)
+      ..style = ui.PaintingStyle.fill;
+    canvas.drawCircle(ui.Offset(menuCenterX, menuCenterY), menuRadius, menuCircle);
+
+    final menuBorder = ui.Paint()
+      ..color = const ui.Color(0x40FFFFFF)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+    canvas.drawCircle(ui.Offset(menuCenterX, menuCenterY), menuRadius, menuBorder);
+
+    final barPaint = ui.Paint()
+      ..color = const ui.Color(0xFFFFFFFF)
+      ..strokeWidth = 3.8
+      ..strokeCap = ui.StrokeCap.round;
+    canvas.drawLine(ui.Offset(menuCenterX - 18, menuCenterY - 11), ui.Offset(menuCenterX + 18, menuCenterY - 11), barPaint);
+    canvas.drawLine(ui.Offset(menuCenterX - 18, menuCenterY), ui.Offset(menuCenterX + 18, menuCenterY), barPaint);
+    canvas.drawLine(ui.Offset(menuCenterX - 18, menuCenterY + 11), ui.Offset(menuCenterX + 18, menuCenterY + 11), barPaint);
+
+    // ── 5. Área Central: Las 3 Líneas de Letra y Acordes ──
+    const lyricsLeft = 295.0;
+    final lyricsWidth = menuCenterX - menuRadius - lyricsLeft - 20.0;
+
+    // Determinar línea 1 (actual)
+    final LyricLine? effectiveCurLine = currentLyricLine ??
+        (currentLine != null && currentLine.isNotEmpty
+            ? LyricLine(
+                tokens: currentLine
+                    .trim()
+                    .split(RegExp(r'\s+'))
+                    .map((w) => LyricToken(word: w))
+                    .toList())
+            : null);
+
+    // Determinar acordes
+    final String? effectiveChords = chords ??
+        (effectiveCurLine != null &&
+                effectiveCurLine.tokens.any((t) => t.chordUnderneath != null && t.chordUnderneath!.isNotEmpty)
+            ? effectiveCurLine.tokens
+                .map((t) => t.chordUnderneath ?? '')
+                .where((c) => c.isNotEmpty)
+                .join('   ')
+            : null);
+
+    double currentY = 46.0;
+
+    if (effectiveChords != null && effectiveChords.isNotEmpty) {
       final chordsBuilder = ui.ParagraphBuilder(
-        ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 26, maxLines: 1),
+        ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 24, maxLines: 1),
       )
-        ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFF5A623), fontWeight: ui.FontWeight.w600))
-        ..addText(chords);
-      final chordsPara = chordsBuilder.build()..layout(ui.ParagraphConstraints(width: width - 120));
-      canvas.drawParagraph(chordsPara, ui.Offset(60, yOffset));
-      yOffset += 40;
+        ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFF5A623), fontWeight: ui.FontWeight.bold))
+        ..addText(effectiveChords);
+      final chordsPara = chordsBuilder.build()..layout(ui.ParagraphConstraints(width: lyricsWidth));
+      canvas.drawParagraph(chordsPara, ui.Offset(lyricsLeft, currentY));
+      currentY += 34.0;
     }
 
-    // Línea actual de la canción (en amarillo resplandeciente / karaoke)
-    final currentBuilder = ui.ParagraphBuilder(
-      ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 36, maxLines: 2),
-    )
-      ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFFFD54F), fontWeight: ui.FontWeight.bold))
-      ..addText(currentLine.isNotEmpty ? currentLine : '♪ ♪ ♪');
-    final currentPara = currentBuilder.build()..layout(ui.ParagraphConstraints(width: width - 120));
-    canvas.drawParagraph(currentPara, ui.Offset(60, yOffset));
-    yOffset += 55;
+    if (effectiveCurLine != null && effectiveCurLine.tokens.isNotEmpty) {
+      // Línea 1: Palabras resaltadas en karaoke (amarillo) y palabras pendientes en blanco
+      final line1Builder = ui.ParagraphBuilder(
+        ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 32, maxLines: 1),
+      );
 
-    // Línea siguiente (vista previa en blanco suave)
-    if (nextLine != null && nextLine.isNotEmpty) {
-      final nextBuilder = ui.ParagraphBuilder(
+      for (int i = 0; i < effectiveCurLine.tokens.length; i++) {
+        final token = effectiveCurLine.tokens[i];
+        final bool isSung = activeWordIndex >= 0 ? (i <= activeWordIndex) : (activeWordIndex == -1 ? true : false);
+
+        line1Builder.pushStyle(
+          ui.TextStyle(
+            color: isSung ? highlightColor : const ui.Color(0xFFFFFFFF),
+            fontWeight: isSung ? ui.FontWeight.w900 : ui.FontWeight.w600,
+            fontSize: 32,
+          ),
+        );
+        line1Builder.addText(token.word);
+        if (i < effectiveCurLine.tokens.length - 1) {
+          line1Builder.addText(' ');
+        }
+      }
+
+      final line1Para = line1Builder.build()..layout(ui.ParagraphConstraints(width: lyricsWidth));
+      canvas.drawParagraph(line1Para, ui.Offset(lyricsLeft, currentY));
+      currentY += 48.0;
+    } else {
+      // Si está vacía
+      final emptyBuilder = ui.ParagraphBuilder(
         ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 26, maxLines: 1),
       )
         ..pushStyle(ui.TextStyle(color: const ui.Color(0x99FFFFFF)))
-        ..addText(nextLine);
-      final nextPara = nextBuilder.build()..layout(ui.ParagraphConstraints(width: width - 120));
-      canvas.drawParagraph(nextPara, ui.Offset(60, yOffset));
+        ..addText('♪ ♪ ♪');
+      final emptyPara = emptyBuilder.build()..layout(ui.ParagraphConstraints(width: lyricsWidth));
+      canvas.drawParagraph(emptyPara, ui.Offset(lyricsLeft, currentY));
+      currentY += 48.0;
+    }
+
+    // Línea 2 (Siguiente estrofa)
+    final String line2Text = nextLyricLine?.fullText ?? (nextLine ?? '');
+    if (line2Text.isNotEmpty) {
+      final line2Builder = ui.ParagraphBuilder(
+        ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 25, maxLines: 1),
+      )
+        ..pushStyle(ui.TextStyle(color: const ui.Color(0xB3FFFFFF), fontWeight: ui.FontWeight.w500))
+        ..addText(line2Text);
+      final line2Para = line2Builder.build()..layout(ui.ParagraphConstraints(width: lyricsWidth));
+      canvas.drawParagraph(line2Para, ui.Offset(lyricsLeft, currentY));
+      currentY += 40.0;
+    }
+
+    // Línea 3 (Tercera estrofa de vista previa)
+    final String line3Text = thirdLyricLine?.fullText ?? '';
+    if (line3Text.isNotEmpty) {
+      final line3Builder = ui.ParagraphBuilder(
+        ui.ParagraphStyle(textAlign: ui.TextAlign.left, fontSize: 22, maxLines: 1),
+      )
+        ..pushStyle(ui.TextStyle(color: const ui.Color(0x66FFFFFF), fontWeight: ui.FontWeight.w400))
+        ..addText(line3Text);
+      final line3Para = line3Builder.build()..layout(ui.ParagraphConstraints(width: lyricsWidth));
+      canvas.drawParagraph(line3Para, ui.Offset(lyricsLeft, currentY));
     }
 
     final picture = recorder.endRecording();

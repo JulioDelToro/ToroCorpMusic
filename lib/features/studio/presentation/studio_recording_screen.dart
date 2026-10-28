@@ -143,9 +143,18 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   RecordingMode _recordingMode = RecordingMode.clean;
 
   // Registro dinámico de cues para incrustación sincronizada en el video
-  final List<({int startTimeMs, int lineIndex, String text, String? nextText, String? chords})> _recordedCueTimeline = [];
+  final List<({
+    int startTimeMs,
+    int lineIndex,
+    int wordIndex,
+    LyricLine? currentLine,
+    LyricLine? nextLine,
+    LyricLine? thirdLine,
+    int elapsedSeconds,
+  })> _recordedCueTimeline = [];
   DateTime? _recordingStartTime;
   int _lastRecordedLineIndex = -1;
+  int _lastRecordedWordIndex = -1;
 
   @override
   void initState() {
@@ -203,35 +212,43 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   void _onTeleprompterUpdated() {
     if (_isRecording && _recordingStartTime != null) {
       final currentLineIdx = _teleprompterController.currentLineIndex;
-      if (currentLineIdx != _lastRecordedLineIndex) {
+      final currentWordIdx = _teleprompterController.activeWordIndex;
+      if (currentLineIdx != _lastRecordedLineIndex || currentWordIdx != _lastRecordedWordIndex) {
         final elapsedMs = DateTime.now().difference(_recordingStartTime!).inMilliseconds;
-        _recordCurrentLineCue(elapsedMs);
+        _recordCurrentStateCue(elapsedMs);
       }
     }
   }
 
-  void _recordCurrentLineCue(int timeMs) {
-    final currentLine = _teleprompterController.currentLine;
+  void _recordCurrentStateCue(int timeMs) {
     final currentLineIdx = _teleprompterController.currentLineIndex;
+    final currentWordIdx = _teleprompterController.activeWordIndex;
     _lastRecordedLineIndex = currentLineIdx;
+    _lastRecordedWordIndex = currentWordIdx;
 
-    final text = currentLine != null
-        ? currentLine.fullText
-        : (_currentSong.lines.isNotEmpty ? _currentSong.lines.first.fullText : '');
-    final nextText = _teleprompterController.nextLine?.fullText;
-    final chordsText = currentLine != null && currentLine.tokens.any((t) => t.chordUnderneath != null)
-        ? currentLine.tokens
-            .map((t) => t.chordUnderneath ?? '')
-            .where((c) => c.isNotEmpty)
-            .join('   ')
-        : null;
+    final allLines = _teleprompterController.song.lines;
+    LyricLine? curLine;
+    LyricLine? nextL;
+    LyricLine? thirdL;
+
+    if (allLines.isNotEmpty && currentLineIdx < allLines.length) {
+      curLine = allLines[currentLineIdx];
+      if (currentLineIdx + 1 < allLines.length) {
+        nextL = allLines[currentLineIdx + 1];
+      }
+      if (currentLineIdx + 2 < allLines.length) {
+        thirdL = allLines[currentLineIdx + 2];
+      }
+    }
 
     _recordedCueTimeline.add((
       startTimeMs: timeMs,
       lineIndex: currentLineIdx,
-      text: text,
-      nextText: nextText,
-      chords: chordsText,
+      wordIndex: currentWordIdx,
+      currentLine: curLine,
+      nextLine: nextL,
+      thirdLine: thirdL,
+      elapsedSeconds: timeMs ~/ 1000,
     ));
   }
 
@@ -473,7 +490,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     _recordingStartTime = DateTime.now();
     _recordedCueTimeline.clear();
     _lastRecordedLineIndex = -1;
-    _recordCurrentLineCue(0);
+    _lastRecordedWordIndex = -1;
+    _recordCurrentStateCue(0);
 
     if (_sherpaService.isInitialized && !_sherpaService.isListening) {
       _sherpaService.startListening();
@@ -549,18 +567,20 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         // Si se seleccionó "Con Guion", incrustar el teleprompter dinámico en el video y generar subtítulos .srt
         if (_recordingMode == RecordingMode.withScript) {
           if (_recordedCueTimeline.isEmpty) {
-            _recordCurrentLineCue(0);
+            _recordCurrentStateCue(0);
           }
 
           final cuesPayload = <Map<String, dynamic>>[];
           for (int i = 0; i < _recordedCueTimeline.length; i++) {
             final cue = _recordedCueTimeline[i];
-            final cuePngPath = '${tempDir.path}/cue_${DateTime.now().millisecondsSinceEpoch}_$i.png';
+            final cuePngPath = '${tempDir.path}/dynamic_island_${DateTime.now().millisecondsSinceEpoch}_$i.png';
             await _compositor.renderTeleprompterOverlayImage(
-              title: _currentSong.title,
-              currentLine: cue.text,
-              nextLine: cue.nextText,
-              chords: cue.chords,
+              currentLyricLine: cue.currentLine,
+              nextLyricLine: cue.nextLine,
+              thirdLyricLine: cue.thirdLine,
+              activeWordIndex: cue.wordIndex,
+              elapsedSeconds: cue.elapsedSeconds,
+              highlightColor: const Color(0xFFFFD54F),
               outputPath: cuePngPath,
             );
             tempFilesToClean.add(File(cuePngPath));
@@ -601,8 +621,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 ? _recordedCueTimeline[i + 1].startTimeMs
                 : totalRecordMs;
             final endMs = nextStartMs > startMs ? nextStartMs : startMs + 1500;
-            if (cue.text.trim().isNotEmpty) {
-              srtCues.add((startTimeMs: startMs, endTimeMs: endMs, text: cue.text));
+            final text = cue.currentLine?.fullText ?? '';
+            if (text.trim().isNotEmpty && (srtCues.isEmpty || srtCues.last.text != text)) {
+              srtCues.add((startTimeMs: startMs, endTimeMs: endMs, text: text));
             }
           }
 
