@@ -15,7 +15,6 @@ dependencies:
   google_fonts: ^6.2.1
   camera: ^0.11.0+2
   permission_handler: ^11.3.1
-  speech_to_text: ^7.0.0
   gal: ^2.3.3
   record: ^7.1.2
   audio_session: ^0.2.4

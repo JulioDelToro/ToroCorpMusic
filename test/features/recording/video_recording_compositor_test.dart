@@ -52,6 +52,53 @@ void main() {
     } catch (_) {}
   });
 
+  test('RecordingCompositor generates SRT subtitles from timed cues', () async {
+    final compositor = VideoRecordingCompositor();
+    final tempDir = Directory.systemTemp;
+    final srtFile = '${tempDir.path}/test_timed_cues_${DateTime.now().millisecondsSinceEpoch}.srt';
+
+    final result = await compositor.generateSrtSubtitles(
+      timedCues: [
+        (startTimeMs: 1200, endTimeMs: 4500, text: 'Primera línea cantada'),
+        (startTimeMs: 4500, endTimeMs: 8200, text: 'Segunda línea cantada'),
+      ],
+      outputPath: srtFile,
+    );
+
+    expect(File(result).existsSync(), isTrue);
+    final content = await File(result).readAsString();
+    expect(content, contains('1'));
+    expect(content, contains('00:00:01,200 --> 00:00:04,500'));
+    expect(content, contains('Primera línea cantada'));
+    expect(content, contains('2'));
+    expect(content, contains('00:00:04,500 --> 00:00:08,200'));
+    expect(content, contains('Segunda línea cantada'));
+
+    try {
+      await File(result).delete();
+    } catch (_) {}
+  });
+
+  test('RecordingCompositor renders watermark overlay image to PNG', () async {
+    final compositor = VideoRecordingCompositor();
+    final tempDir = Directory.systemTemp;
+    final pngFile = '${tempDir.path}/test_wm_${DateTime.now().millisecondsSinceEpoch}.png';
+
+    final result = await compositor.renderWatermarkOverlayImage(
+      outputPath: pngFile,
+    );
+
+    expect(File(result).existsSync(), isTrue);
+    final bytes = await File(result).readAsBytes();
+    expect(bytes.isNotEmpty, isTrue);
+    expect(bytes[0], equals(0x89));
+    expect(bytes[1], equals(0x50));
+
+    try {
+      await File(result).delete();
+    } catch (_) {}
+  });
+
   test('RecordingCompositor renders teleprompter overlay image to PNG', () async {
     final compositor = VideoRecordingCompositor();
     final tempDir = Directory.systemTemp;

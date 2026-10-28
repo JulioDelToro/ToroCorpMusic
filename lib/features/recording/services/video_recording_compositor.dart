@@ -47,22 +47,80 @@ class VideoRecordingCompositor {
   }
 
   /// Compone el video con la imagen del teleprompter incrustada utilizando aceleración por hardware en Android
-  Future<String> compositeVideoWithOverlay({
+  Future<({String path, bool composited})> compositeVideoWithOverlay({
     required String videoPath,
-    required String overlayPath,
+    String? overlayPath,
+    List<Map<String, dynamic>>? cues,
+    String? watermarkPath,
     required String outputPath,
   }) async {
     try {
-      final String? result = await _channel.invokeMethod<String>('compositeVideoWithOverlay', {
+      final args = <String, dynamic>{
         'videoPath': videoPath,
-        'overlayPath': overlayPath,
         'outputPath': outputPath,
-      });
-      return result ?? videoPath;
+      };
+      if (overlayPath != null) args['overlayPath'] = overlayPath;
+      if (cues != null) args['cues'] = cues;
+      if (watermarkPath != null) args['watermarkPath'] = watermarkPath;
+
+      final Map<dynamic, dynamic>? result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'compositeVideoWithOverlay',
+        args,
+      );
+      if (result != null) {
+        final path = result['path'] as String? ?? videoPath;
+        final composited = result['composited'] as bool? ?? false;
+        return (path: path, composited: composited);
+      }
+      return (path: videoPath, composited: false);
     } catch (_) {
       // Fallback seguro al video original si el compositor nativo no está disponible (e.g. en tests)
-      return videoPath;
+      return (path: videoPath, composited: false);
     }
+  }
+
+  /// Renderiza una marca de agua sutil ("ToroCorp Music • Free") en PNG
+  Future<String> renderWatermarkOverlayImage({
+    required String outputPath,
+    int width = 360,
+    int height = 90,
+  }) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
+
+    final rrect = ui.RRect.fromRectAndRadius(
+      ui.Rect.fromLTWH(8, 8, width.toDouble() - 16, height.toDouble() - 16),
+      const ui.Radius.circular(20),
+    );
+    final bgPaint = ui.Paint()
+      ..color = const ui.Color(0xD90A0A0A)
+      ..style = ui.PaintingStyle.fill;
+    canvas.drawRRect(rrect, bgPaint);
+
+    final borderPaint = ui.Paint()
+      ..color = const ui.Color(0x33FFFFFF)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawRRect(rrect, borderPaint);
+
+    final headerBuilder = ui.ParagraphBuilder(
+      ui.ParagraphStyle(textAlign: ui.TextAlign.center, fontSize: 20, maxLines: 1),
+    )
+      ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFF5A623), fontWeight: ui.FontWeight.bold))
+      ..addText('ToroCorp Music')
+      ..pushStyle(ui.TextStyle(color: const ui.Color(0x99FFFFFF), fontSize: 16))
+      ..addText('  •  Free');
+    final headerPara = headerBuilder.build()..layout(ui.ParagraphConstraints(width: width - 32));
+    canvas.drawParagraph(headerPara, const ui.Offset(16, 26));
+
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(width, height);
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData != null) {
+      final file = File(outputPath);
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+    }
+    return outputPath;
   }
 
   /// Renderiza la cápsula del teleprompter como imagen PNG de alta definición con fondo transparente
@@ -152,29 +210,38 @@ class VideoRecordingCompositor {
 
   /// Genera archivo de subtítulos sincronizados .srt para reproductores estándar
   Future<String> generateSrtSubtitles({
-    required List<String> lines,
-    required int totalDurationSeconds,
+    List<String>? lines,
+    int? totalDurationSeconds,
+    List<({int startTimeMs, int endTimeMs, String text})>? timedCues,
     required String outputPath,
   }) async {
     final buffer = StringBuffer();
-    if (lines.isEmpty || totalDurationSeconds <= 0) {
-      final file = File(outputPath);
-      await file.writeAsString(buffer.toString());
-      return outputPath;
-    }
 
-    final int secondsPerLine = (totalDurationSeconds / lines.length).clamp(2, 8).toInt();
-    for (int i = 0; i < lines.length; i++) {
-      final startSec = i * secondsPerLine;
-      final endSec = ((i + 1) * secondsPerLine).clamp(0, totalDurationSeconds);
+    if (timedCues != null && timedCues.isNotEmpty) {
+      for (int i = 0; i < timedCues.length; i++) {
+        final cue = timedCues[i];
+        final startMs = cue.startTimeMs;
+        final endMs = cue.endTimeMs > startMs ? cue.endTimeMs : startMs + 2000;
 
-      final startFormat = _formatSrtTimestamp(startSec);
-      final endFormat = _formatSrtTimestamp(endSec);
+        buffer.writeln('${i + 1}');
+        buffer.writeln('${_formatSrtTimestampMs(startMs)} --> ${_formatSrtTimestampMs(endMs)}');
+        buffer.writeln(cue.text);
+        buffer.writeln();
+      }
+    } else if (lines != null && lines.isNotEmpty && totalDurationSeconds != null && totalDurationSeconds > 0) {
+      final int secondsPerLine = (totalDurationSeconds / lines.length).clamp(2, 8).toInt();
+      for (int i = 0; i < lines.length; i++) {
+        final startSec = i * secondsPerLine;
+        final endSec = ((i + 1) * secondsPerLine).clamp(0, totalDurationSeconds);
 
-      buffer.writeln('${i + 1}');
-      buffer.writeln('$startFormat --> $endFormat');
-      buffer.writeln(lines[i]);
-      buffer.writeln();
+        final startFormat = _formatSrtTimestamp(startSec);
+        final endFormat = _formatSrtTimestamp(endSec > startSec ? endSec : startSec + 2);
+
+        buffer.writeln('${i + 1}');
+        buffer.writeln('$startFormat --> $endFormat');
+        buffer.writeln(lines[i]);
+        buffer.writeln();
+      }
     }
 
     final file = File(outputPath);
@@ -187,5 +254,13 @@ class VideoRecordingCompositor {
     final minutes = (totalSeconds % 3600) ~/ 60;
     final seconds = totalSeconds % 60;
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')},000';
+  }
+
+  String _formatSrtTimestampMs(int totalMs) {
+    final hours = totalMs ~/ 3600000;
+    final minutes = (totalMs % 3600000) ~/ 60000;
+    final seconds = (totalMs % 60000) ~/ 1000;
+    final millis = totalMs % 1000;
+    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')},${millis.toString().padLeft(3, '0')}';
   }
 }

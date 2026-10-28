@@ -37,6 +37,7 @@ class TeleprompterController extends ChangeNotifier {
 
   SongScript get song => _song;
   int get activeLineIndex => _activeLineIndex;
+  int get currentLineIndex => _activeLineIndex;
   int get activeWordIndex => _activeWordIndex;
   bool get isMirrorMode => _isMirrorMode;
   double get fontSize => _fontSize;

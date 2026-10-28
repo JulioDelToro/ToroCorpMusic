@@ -13,6 +13,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.OverlaySettings
+import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
@@ -25,6 +26,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
+private data class DynamicCue(val startTimeUs: Long, val bitmap: Bitmap)
+
 @UnstableApi
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.torocorp.toro_music_teleprompter/video_compositor"
@@ -36,8 +39,10 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "compositeVideoWithOverlay" -> {
                     val videoPath = call.argument<String>("videoPath")
-                    val overlayPath = call.argument<String>("overlayPath")
                     val outputPath = call.argument<String>("outputPath")
+                    val cuesData = call.argument<List<Map<String, Any>>>("cues")
+                    val overlayPath = call.argument<String>("overlayPath")
+                    val watermarkPath = call.argument<String>("watermarkPath")
 
                     if (videoPath == null || outputPath == null) {
                         result.error("INVALID_ARGS", "videoPath y outputPath son requeridos", null)
@@ -50,29 +55,109 @@ class MainActivity : FlutterActivity() {
                         return@setMethodCallHandler
                     }
 
-                    if (overlayPath == null || !File(overlayPath).exists()) {
-                        result.success(videoPath)
-                        return@setMethodCallHandler
+                    val handler = Handler(Looper.getMainLooper())
+                    var hasReplied = false
+
+                    fun safeReply(path: String, composited: Boolean) {
+                        if (!hasReplied) {
+                            hasReplied = true
+                            handler.post {
+                                result.success(
+                                    mapOf(
+                                        "path" to path,
+                                        "composited" to composited
+                                    )
+                                )
+                            }
+                        }
                     }
 
                     try {
-                        val overlayBitmap = BitmapFactory.decodeFile(overlayPath)
-                        if (overlayBitmap == null) {
-                            result.success(videoPath)
+                        val loadedCues = mutableListOf<DynamicCue>()
+
+                        // 1. Cargar cues dinámicas si fueron provistas
+                        if (cuesData != null && cuesData.isNotEmpty()) {
+                            for (entry in cuesData) {
+                                val path = entry["imagePath"] as? String ?: continue
+                                val timeMs = (entry["startTimeMs"] as? Number)?.toLong() ?: 0L
+                                val file = File(path)
+                                if (file.exists()) {
+                                    val bmp = BitmapFactory.decodeFile(path)
+                                    if (bmp != null) {
+                                        loadedCues.add(DynamicCue(timeMs * 1000L, bmp))
+                                    }
+                                }
+                            }
+                            loadedCues.sortBy { it.startTimeUs }
+                        }
+
+                        // 2. Fallback a overlayPath estático si no hubo lista de cues
+                        if (loadedCues.isEmpty() && overlayPath != null) {
+                            val singleFile = File(overlayPath)
+                            if (singleFile.exists()) {
+                                val bmp = BitmapFactory.decodeFile(overlayPath)
+                                if (bmp != null) {
+                                    loadedCues.add(DynamicCue(0L, bmp))
+                                }
+                            }
+                        }
+
+                        // Lista de superposiciones (Overlays)
+                        val textureOverlays = mutableListOf<TextureOverlay>()
+
+                        // 3. Crear overlay de teleprompter dinámico
+                        if (loadedCues.isNotEmpty()) {
+                            val teleprompterSettings = OverlaySettings.Builder()
+                                .setScale(0.92f, 0.92f)
+                                .setBackgroundFrameAnchor(0f, -0.65f)
+                                .setOverlayFrameAnchor(0f, 0f)
+                                .setAlphaScale(1.0f)
+                                .build()
+
+                            val teleprompterOverlay = object : BitmapOverlay() {
+                                override fun getBitmap(presentationTimeUs: Long): Bitmap {
+                                    var activeBitmap = loadedCues.first().bitmap
+                                    for (cue in loadedCues) {
+                                        if (cue.startTimeUs <= presentationTimeUs) {
+                                            activeBitmap = cue.bitmap
+                                        } else {
+                                            break
+                                        }
+                                    }
+                                    return activeBitmap
+                                }
+
+                                override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
+                                    return teleprompterSettings
+                                }
+                            }
+                            textureOverlays.add(teleprompterOverlay)
+                        }
+
+                        // 4. Marca de agua "ToroCorp Music" si se solicita
+                        if (watermarkPath != null) {
+                            val wmFile = File(watermarkPath)
+                            if (wmFile.exists()) {
+                                val wmBmp = BitmapFactory.decodeFile(watermarkPath)
+                                if (wmBmp != null) {
+                                    val wmSettings = OverlaySettings.Builder()
+                                        .setScale(0.35f, 0.35f)
+                                        .setBackgroundFrameAnchor(0.70f, 0.85f)
+                                        .setOverlayFrameAnchor(0f, 0f)
+                                        .setAlphaScale(0.85f)
+                                        .build()
+                                    textureOverlays.add(BitmapOverlay.createStaticBitmapOverlay(wmBmp, wmSettings))
+                                }
+                            }
+                        }
+
+                        // Si no hay ningún overlay que incrustar, retornar el video original de inmediato
+                        if (textureOverlays.isEmpty()) {
+                            safeReply(videoPath, false)
                             return@setMethodCallHandler
                         }
 
-                        val overlaySettings = OverlaySettings.Builder()
-                            .setScale(0.92f, 0.92f)
-                            .setBackgroundFrameAnchor(0f, -0.65f)
-                            .setOverlayFrameAnchor(0f, 0f)
-                            .setAlphaScale(1.0f)
-                            .build()
-
-                        val bitmapOverlay = BitmapOverlay.createStaticBitmapOverlay(overlayBitmap, overlaySettings)
-                        val overlays = ImmutableList.of<androidx.media3.effect.TextureOverlay>(bitmapOverlay)
-                        val overlayEffect = OverlayEffect(overlays)
-
+                        val overlayEffect = OverlayEffect(ImmutableList.copyOf(textureOverlays))
                         val mediaItem = MediaItem.Builder().setUri(Uri.fromFile(inputFile)).build()
                         val videoEffects = listOf<Effect>(overlayEffect)
                         val editedMediaItem = EditedMediaItem.Builder(mediaItem)
@@ -84,15 +169,12 @@ class MainActivity : FlutterActivity() {
                             outputFile.delete()
                         }
 
-                        val handler = Handler(Looper.getMainLooper())
                         val transformer = Transformer.Builder(applicationContext)
                             .setVideoMimeType(MimeTypes.VIDEO_H264)
                             .setAudioMimeType(MimeTypes.AUDIO_AAC)
                             .addListener(object : Transformer.Listener {
                                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                                    handler.post {
-                                        result.success(outputPath)
-                                    }
+                                    safeReply(outputPath, true)
                                 }
 
                                 override fun onError(
@@ -100,16 +182,15 @@ class MainActivity : FlutterActivity() {
                                     exportResult: ExportResult,
                                     exportException: ExportException
                                 ) {
-                                    handler.post {
-                                        result.success(videoPath)
-                                    }
+                                    // Fallback seguro al video original
+                                    safeReply(videoPath, false)
                                 }
                             })
                             .build()
 
                         transformer.start(editedMediaItem, outputFile.absolutePath)
-                    } catch (e: Exception) {
-                        result.success(videoPath)
+                    } catch (t: Throwable) {
+                        safeReply(videoPath, false)
                     }
                 }
                 else -> result.notImplemented()

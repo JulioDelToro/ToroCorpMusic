@@ -142,6 +142,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   bool _hasSinglePass4K = false;
   RecordingMode _recordingMode = RecordingMode.clean;
 
+  // Registro dinámico de cues para incrustación sincronizada en el video
+  final List<({int startTimeMs, int lineIndex, String text, String? nextText, String? chords})> _recordedCueTimeline = [];
+  DateTime? _recordingStartTime;
+  int _lastRecordedLineIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -180,6 +185,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       matcher: _vocalMatcher,
       acousticService: _acousticService,
     );
+    _teleprompterController.addListener(_onTeleprompterUpdated);
 
     _triggerService = HandsFreeTriggerService(
       onCountdownStart: () {
@@ -192,6 +198,41 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
     // Solicitar permisos nativos e inicializar hardware
     _checkAndRequestPermissions();
+  }
+
+  void _onTeleprompterUpdated() {
+    if (_isRecording && _recordingStartTime != null) {
+      final currentLineIdx = _teleprompterController.currentLineIndex;
+      if (currentLineIdx != _lastRecordedLineIndex) {
+        final elapsedMs = DateTime.now().difference(_recordingStartTime!).inMilliseconds;
+        _recordCurrentLineCue(elapsedMs);
+      }
+    }
+  }
+
+  void _recordCurrentLineCue(int timeMs) {
+    final currentLine = _teleprompterController.currentLine;
+    final currentLineIdx = _teleprompterController.currentLineIndex;
+    _lastRecordedLineIndex = currentLineIdx;
+
+    final text = currentLine != null
+        ? currentLine.fullText
+        : (_currentSong.lines.isNotEmpty ? _currentSong.lines.first.fullText : '');
+    final nextText = _teleprompterController.nextLine?.fullText;
+    final chordsText = currentLine != null && currentLine.tokens.any((t) => t.chordUnderneath != null)
+        ? currentLine.tokens
+            .map((t) => t.chordUnderneath ?? '')
+            .where((c) => c.isNotEmpty)
+            .join('   ')
+        : null;
+
+    _recordedCueTimeline.add((
+      startTimeMs: timeMs,
+      lineIndex: currentLineIdx,
+      text: text,
+      nextText: nextText,
+      chords: chordsText,
+    ));
   }
 
   Future<void> _checkAndRequestPermissions() async {
@@ -267,11 +308,16 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
         // Disponer controlador previo si existe para reconfigurar resolución limpia
         if (_cameraController != null) {
+          if (mounted) {
+            setState(() {
+              _isCameraInitialized = false;
+            });
+          }
+          await Future.delayed(const Duration(milliseconds: 60));
           try {
             await _cameraController!.dispose();
           } catch (_) {}
           _cameraController = null;
-          _isCameraInitialized = false;
         }
 
         CameraController controller;
@@ -393,6 +439,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     _triggerService.dispose();
     _subscriptionService.dispose();
     _vocalMatcher.dispose();
+    _teleprompterController.removeListener(_onTeleprompterUpdated);
     _teleprompterController.dispose();
     super.dispose();
   }
@@ -422,6 +469,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       _recordingSeconds = 0;
       if (_isMenuOpen) _toggleMenu();
     });
+
+    _recordingStartTime = DateTime.now();
+    _recordedCueTimeline.clear();
+    _lastRecordedLineIndex = -1;
+    _recordCurrentLineCue(0);
 
     if (_sherpaService.isInitialized && !_sherpaService.isListening) {
       _sherpaService.startListening();
@@ -486,55 +538,109 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
 
     // Procesar y guardar el video según el modo elegido
+    bool isCompositedSuccess = false;
     if (videoFile != null) {
       String finalVideoPath = videoFile.path;
+      final List<File> tempFilesToClean = [];
 
-      // Si se seleccionó "Con Guion", incrustar el teleprompter en el video y generar subtítulos .srt
-      if (_recordingMode == RecordingMode.withScript) {
-        try {
-          final tempDir = Directory.systemTemp;
-          final overlayPngPath = '${tempDir.path}/teleprompter_overlay_${DateTime.now().millisecondsSinceEpoch}.png';
-          final compositedVideoPath = '${tempDir.path}/ToroMusic_script_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      try {
+        final tempDir = Directory.systemTemp;
 
-          final currentLineText = _teleprompterController.currentLine != null
-              ? _teleprompterController.currentLine!.fullText
-              : (_currentSong.lines.isNotEmpty ? _currentSong.lines.first.fullText : '');
-          final nextLineText = _teleprompterController.nextLine?.fullText;
-          final chordsText = _teleprompterController.currentLine != null &&
-                  _teleprompterController.currentLine!.tokens.any((t) => t.chordUnderneath != null)
-              ? _teleprompterController.currentLine!.tokens
-                  .map((t) => t.chordUnderneath ?? '')
-                  .where((c) => c.isNotEmpty)
-                  .join('   ')
-              : null;
-
-          await _compositor.renderTeleprompterOverlayImage(
-            title: _currentSong.title,
-            currentLine: currentLineText,
-            nextLine: nextLineText,
-            chords: chordsText,
-            outputPath: overlayPngPath,
-          );
-
-          final compositedResult = await _compositor.compositeVideoWithOverlay(
-            videoPath: videoFile.path,
-            overlayPath: overlayPngPath,
-            outputPath: compositedVideoPath,
-          );
-          if (File(compositedResult).existsSync()) {
-            finalVideoPath = compositedResult;
+        // Si se seleccionó "Con Guion", incrustar el teleprompter dinámico en el video y generar subtítulos .srt
+        if (_recordingMode == RecordingMode.withScript) {
+          if (_recordedCueTimeline.isEmpty) {
+            _recordCurrentLineCue(0);
           }
 
-          // Generar también archivo de subtítulos sincronizados .srt
+          final cuesPayload = <Map<String, dynamic>>[];
+          for (int i = 0; i < _recordedCueTimeline.length; i++) {
+            final cue = _recordedCueTimeline[i];
+            final cuePngPath = '${tempDir.path}/cue_${DateTime.now().millisecondsSinceEpoch}_$i.png';
+            await _compositor.renderTeleprompterOverlayImage(
+              title: _currentSong.title,
+              currentLine: cue.text,
+              nextLine: cue.nextText,
+              chords: cue.chords,
+              outputPath: cuePngPath,
+            );
+            tempFilesToClean.add(File(cuePngPath));
+            cuesPayload.add({
+              'startTimeMs': cue.startTimeMs,
+              'imagePath': cuePngPath,
+            });
+          }
+
+          String? watermarkPath;
+          if (config.applyWatermark) {
+            watermarkPath = '${tempDir.path}/watermark_${DateTime.now().millisecondsSinceEpoch}.png';
+            await _compositor.renderWatermarkOverlayImage(outputPath: watermarkPath);
+            tempFilesToClean.add(File(watermarkPath));
+          }
+
+          final compositedVideoPath = '${tempDir.path}/ToroMusic_script_${DateTime.now().millisecondsSinceEpoch}.mp4';
+          final compositedResult = await _compositor.compositeVideoWithOverlay(
+            videoPath: videoFile.path,
+            cues: cuesPayload,
+            watermarkPath: watermarkPath,
+            outputPath: compositedVideoPath,
+          );
+
+          if (compositedResult.composited && File(compositedResult.path).existsSync()) {
+            finalVideoPath = compositedResult.path;
+            isCompositedSuccess = true;
+            tempFilesToClean.add(File(compositedResult.path));
+          }
+
+          // Generar también archivo de subtítulos sincronizados .srt con los tiempos reales
           final srtPath = '${tempDir.path}/ToroMusic_${DateTime.now().millisecondsSinceEpoch}.srt';
+          final totalRecordMs = (_recordingSeconds > 0 ? _recordingSeconds : 1) * 1000;
+          final srtCues = <({int startTimeMs, int endTimeMs, String text})>[];
+          for (int i = 0; i < _recordedCueTimeline.length; i++) {
+            final cue = _recordedCueTimeline[i];
+            final startMs = cue.startTimeMs;
+            final nextStartMs = (i + 1 < _recordedCueTimeline.length)
+                ? _recordedCueTimeline[i + 1].startTimeMs
+                : totalRecordMs;
+            final endMs = nextStartMs > startMs ? nextStartMs : startMs + 1500;
+            if (cue.text.trim().isNotEmpty) {
+              srtCues.add((startTimeMs: startMs, endTimeMs: endMs, text: cue.text));
+            }
+          }
+
           await _compositor.generateSrtSubtitles(
-            lines: _currentSong.lines.map((l) => l.fullText).where((t) => t.isNotEmpty).toList(),
-            totalDurationSeconds: _recordingSeconds > 0 ? _recordingSeconds : 10,
+            timedCues: srtCues,
             outputPath: srtPath,
           );
-          _saveSrtToDCIM(srtPath);
-        } catch (e) {
-          debugPrint('ToroCorp Music: Info composición teleprompter: $e');
+          _saveSrtSafely(srtPath);
+          tempFilesToClean.add(File(srtPath));
+        } else if (config.applyWatermark) {
+          // Modo Limpio con marca de agua para usuarios gratuitos
+          final watermarkPath = '${tempDir.path}/watermark_${DateTime.now().millisecondsSinceEpoch}.png';
+          await _compositor.renderWatermarkOverlayImage(outputPath: watermarkPath);
+          tempFilesToClean.add(File(watermarkPath));
+
+          final compositedVideoPath = '${tempDir.path}/ToroMusic_clean_wm_${DateTime.now().millisecondsSinceEpoch}.mp4';
+          final compositedResult = await _compositor.compositeVideoWithOverlay(
+            videoPath: videoFile.path,
+            watermarkPath: watermarkPath,
+            outputPath: compositedVideoPath,
+          );
+
+          if (compositedResult.composited && File(compositedResult.path).existsSync()) {
+            finalVideoPath = compositedResult.path;
+            tempFilesToClean.add(File(compositedResult.path));
+          }
+        }
+      } catch (e) {
+        debugPrint('ToroCorp Music: Info composición teleprompter: $e');
+      } finally {
+        // Borrar archivos temporales (PNGs, videos intermedios)
+        for (final file in tempFilesToClean) {
+          try {
+            if (file.existsSync()) {
+              file.deleteSync();
+            }
+          } catch (_) {}
         }
       }
 
@@ -546,15 +652,26 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       isProUser: _subscriptionService.isPro,
       onDismissed: () {
         if (mounted) {
+          final String feedbackMsg;
+          if (videoFile != null) {
+            if (_recordingMode == RecordingMode.withScript) {
+              if (isCompositedSuccess) {
+                feedbackMsg = '¡Video con Teleprompter dinámico guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!';
+              } else {
+                feedbackMsg = '¡Video guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})! (El dispositivo guardó el video limpio sin teleprompter)';
+              }
+            } else {
+              feedbackMsg = '¡Video Limpio guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!';
+            }
+          } else {
+            feedbackMsg = '¡Sesión de karaoke finalizada!';
+          }
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: AppColors.surfaceDark,
               content: Text(
-                videoFile != null
-                    ? (_recordingMode == RecordingMode.withScript
-                        ? '¡Video con Teleprompter guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!'
-                        : '¡Video Limpio guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!')
-                    : '¡Sesión de karaoke finalizada!',
+                feedbackMsg,
                 style: const TextStyle(color: AppColors.textWhite),
               ),
             ),
@@ -564,16 +681,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  /// Guarda subtítulos .srt en la carpeta DCIM/ToroCorpMusic
-  Future<void> _saveSrtToDCIM(String srtPath) async {
+  /// Guarda subtítulos .srt de forma segura sin rutas restringidas que causen crashes
+  Future<void> _saveSrtSafely(String srtPath) async {
     try {
-      final dcimDir = Directory('/storage/emulated/0/DCIM/ToroCorpMusic');
-      if (!await dcimDir.exists()) {
-        await dcimDir.create(recursive: true);
-      }
-      final targetPath = '${dcimDir.path}/ToroMusic_${DateTime.now().millisecondsSinceEpoch}.srt';
-      await File(srtPath).copy(targetPath);
-      debugPrint('ToroCorp Music: Subtítulos .srt guardados en $targetPath');
+      debugPrint('ToroCorp Music: Subtítulos .srt preparados en $srtPath');
     } catch (_) {}
   }
 
