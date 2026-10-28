@@ -241,8 +241,22 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     }
   }
 
-  Future<void> _initializeCamera() async {
+  ResolutionPreset _resolvePresetForQuality(QualityOption quality) {
+    if (quality.title.contains('4K')) {
+      return ResolutionPreset.ultraHigh;
+    } else if (quality.title.contains('1080p')) {
+      return ResolutionPreset.veryHigh;
+    } else if (quality.title.contains('720p')) {
+      return ResolutionPreset.high;
+    }
+    return ResolutionPreset.veryHigh;
+  }
+
+  Future<void> _initializeCamera({QualityOption? targetQuality}) async {
     if (!_isCameraActive) return;
+    final quality = targetQuality ?? _selectedQuality;
+    final targetPreset = _resolvePresetForQuality(quality);
+
     try {
       final cameras = await availableCameras();
       if (cameras.isNotEmpty) {
@@ -250,12 +264,36 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
           (c) => c.lensDirection == CameraLensDirection.front,
           orElse: () => cameras.first,
         );
-        _cameraController = CameraController(
-          frontCam,
-          ResolutionPreset.high,
-          enableAudio: true,
-        );
-        await _cameraController!.initialize();
+
+        // Disponer controlador previo si existe para reconfigurar resolución limpia
+        if (_cameraController != null) {
+          try {
+            await _cameraController!.dispose();
+          } catch (_) {}
+          _cameraController = null;
+          _isCameraInitialized = false;
+        }
+
+        CameraController controller;
+        try {
+          debugPrint('ToroCorp Music: Configurando cámara en $targetPreset (${quality.title})...');
+          controller = CameraController(
+            frontCam,
+            targetPreset,
+            enableAudio: true,
+          );
+          await controller.initialize();
+        } catch (e) {
+          debugPrint('ToroCorp Music: Preset $targetPreset no soportado por este sensor ($e). Aplicando ResolutionPreset.max...');
+          controller = CameraController(
+            frontCam,
+            ResolutionPreset.max,
+            enableAudio: true,
+          );
+          await controller.initialize();
+        }
+
+        _cameraController = controller;
         if (mounted) {
           setState(() {
             _isCameraInitialized = true;
@@ -416,6 +454,13 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     }
   }
 
+  VideoResolution _getVideoResolutionForQuality(QualityOption opt) {
+    if (opt.title.contains('4K') && opt.fps == 60) return VideoResolution.fourK60;
+    if (opt.title.contains('4K')) return VideoResolution.fourK30;
+    if (opt.title.contains('1080p')) return VideoResolution.fhd1080p;
+    return VideoResolution.hd720p;
+  }
+
   Future<void> _stopRecordingProcess() async {
     _recordingTimer?.cancel();
     setState(() {
@@ -435,14 +480,65 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     // Configurar composición
     final config = _compositor.buildConfig(
       mode: _recordingMode,
-      resolution: _selectedQuality.isPro ? VideoResolution.fourK30 : VideoResolution.fhd1080p,
+      resolution: _getVideoResolutionForQuality(_selectedQuality),
       isProUser: _subscriptionService.isPro,
       hasUnlockedSinglePass: _hasSinglePass4K,
     );
 
-    // Guardar en Galería local en álbum ToroCorpMusic
+    // Procesar y guardar el video según el modo elegido
     if (videoFile != null) {
-      await _saveVideoToGallery(videoFile.path);
+      String finalVideoPath = videoFile.path;
+
+      // Si se seleccionó "Con Guion", incrustar el teleprompter en el video y generar subtítulos .srt
+      if (_recordingMode == RecordingMode.withScript) {
+        try {
+          final tempDir = Directory.systemTemp;
+          final overlayPngPath = '${tempDir.path}/teleprompter_overlay_${DateTime.now().millisecondsSinceEpoch}.png';
+          final compositedVideoPath = '${tempDir.path}/ToroMusic_script_${DateTime.now().millisecondsSinceEpoch}.mp4';
+
+          final currentLineText = _teleprompterController.currentLine != null
+              ? _teleprompterController.currentLine!.fullText
+              : (_currentSong.lines.isNotEmpty ? _currentSong.lines.first.fullText : '');
+          final nextLineText = _teleprompterController.nextLine?.fullText;
+          final chordsText = _teleprompterController.currentLine != null &&
+                  _teleprompterController.currentLine!.tokens.any((t) => t.chordUnderneath != null)
+              ? _teleprompterController.currentLine!.tokens
+                  .map((t) => t.chordUnderneath ?? '')
+                  .where((c) => c.isNotEmpty)
+                  .join('   ')
+              : null;
+
+          await _compositor.renderTeleprompterOverlayImage(
+            title: _currentSong.title,
+            currentLine: currentLineText,
+            nextLine: nextLineText,
+            chords: chordsText,
+            outputPath: overlayPngPath,
+          );
+
+          final compositedResult = await _compositor.compositeVideoWithOverlay(
+            videoPath: videoFile.path,
+            overlayPath: overlayPngPath,
+            outputPath: compositedVideoPath,
+          );
+          if (File(compositedResult).existsSync()) {
+            finalVideoPath = compositedResult;
+          }
+
+          // Generar también archivo de subtítulos sincronizados .srt
+          final srtPath = '${tempDir.path}/ToroMusic_${DateTime.now().millisecondsSinceEpoch}.srt';
+          await _compositor.generateSrtSubtitles(
+            lines: _currentSong.lines.map((l) => l.fullText).where((t) => t.isNotEmpty).toList(),
+            totalDurationSeconds: _recordingSeconds > 0 ? _recordingSeconds : 10,
+            outputPath: srtPath,
+          );
+          _saveSrtToDCIM(srtPath);
+        } catch (e) {
+          debugPrint('ToroCorp Music: Info composición teleprompter: $e');
+        }
+      }
+
+      await _saveVideoToGallery(finalVideoPath);
     }
 
     // Mostrar anuncio intersticial al guardar
@@ -455,7 +551,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
               backgroundColor: AppColors.surfaceDark,
               content: Text(
                 videoFile != null
-                    ? '¡Video guardado en la Galería en el álbum "ToroCorpMusic" (${config.resolution.label})!'
+                    ? (_recordingMode == RecordingMode.withScript
+                        ? '¡Video con Teleprompter guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!'
+                        : '¡Video Limpio guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!')
                     : '¡Sesión de karaoke finalizada!',
                 style: const TextStyle(color: AppColors.textWhite),
               ),
@@ -464,6 +562,19 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         }
       },
     );
+  }
+
+  /// Guarda subtítulos .srt en la carpeta DCIM/ToroCorpMusic
+  Future<void> _saveSrtToDCIM(String srtPath) async {
+    try {
+      final dcimDir = Directory('/storage/emulated/0/DCIM/ToroCorpMusic');
+      if (!await dcimDir.exists()) {
+        await dcimDir.create(recursive: true);
+      }
+      final targetPath = '${dcimDir.path}/ToroMusic_${DateTime.now().millisecondsSinceEpoch}.srt';
+      await File(srtPath).copy(targetPath);
+      debugPrint('ToroCorp Music: Subtítulos .srt guardados en $targetPath');
+    } catch (_) {}
   }
 
   /// Guarda el video en la Galería del teléfono dentro del álbum "ToroCorpMusic"
@@ -533,6 +644,154 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
+  // Cuadro de diálogo modal para seleccionar el tipo de grabación (Limpio vs Con Guion)
+  void _openRecordingModeModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surfaceDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Tipo de Grabación', style: AppTypography.sfProHeadline()),
+              const SizedBox(height: 6),
+              Text(
+                'Selecciona si deseas que el video guarde la cámara limpia o con la letra y teleprompter en pantalla.',
+                style: AppTypography.sfProCaption(),
+              ),
+              const SizedBox(height: 16),
+
+              // Opción 1: Video Limpio
+              _buildRecordingModeTile(
+                title: 'Video Limpio (Solo Cámara)',
+                subtitle: 'Graba exclusivamente el video puro de la cámara en máxima resolución y calidad. Sin letras ni teleprompter.',
+                icon: Icons.videocam_rounded,
+                badge: 'Puro Video',
+                badgeColor: AppColors.tunerInTuneGreen,
+                isSelected: _recordingMode == RecordingMode.clean,
+                onTap: () {
+                  setState(() {
+                    _recordingMode = RecordingMode.clean;
+                  });
+                  Navigator.of(context).pop();
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              // Opción 2: Con Guion
+              _buildRecordingModeTile(
+                title: 'Con Guion (Cámara + Letra)',
+                subtitle: 'Graba el video mostrando el teleprompter con las letras de la canción y acordes sincronizados.',
+                icon: Icons.subtitles_rounded,
+                badge: 'Teleprompter',
+                badgeColor: AppColors.chordAmber,
+                isSelected: _recordingMode == RecordingMode.withScript,
+                onTap: () {
+                  setState(() {
+                    _recordingMode = RecordingMode.withScript;
+                  });
+                  Navigator.of(context).pop();
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRecordingModeTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required String badge,
+    required Color badgeColor,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? badgeColor.withAlpha(25) : AppColors.cardDark,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? badgeColor : AppColors.borderDark,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.check_circle : icon,
+              color: isSelected ? badgeColor : AppColors.textSecondary,
+              size: 26,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            color: AppColors.textWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withAlpha(40),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: badgeColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Cuadro de diálogo para seleccionar calidad y FPS
   void _openQualitySelectionModal() {
     showModalBottomSheet(
@@ -594,6 +853,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                             _hasSinglePass4K = true;
                             _selectedQuality = opt;
                           });
+                          _initializeCamera(targetQuality: opt);
                         },
                       );
                     } else {
@@ -601,6 +861,19 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                         _selectedQuality = opt;
                       });
                       Navigator.of(context).pop();
+                      _initializeCamera(targetQuality: opt);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppColors.surfaceDark,
+                            content: Text(
+                              'Calidad de video aplicada: ${opt.title} (${opt.resolution})',
+                              style: const TextStyle(color: AppColors.textWhite),
+                            ),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
                     }
                   },
                 );
@@ -1069,16 +1342,19 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
                         // 10. Tipo de Grabación (Limpio vs Con Guion)
                         _buildMenuItem(
-                          icon: _recordingMode == RecordingMode.clean ? Icons.videocam : Icons.subtitles,
+                          icon: _recordingMode == RecordingMode.clean
+                              ? Icons.videocam
+                              : Icons.subtitles,
+                          iconColor: _recordingMode == RecordingMode.clean
+                              ? AppColors.tunerInTuneGreen
+                              : AppColors.chordAmber,
                           title: 'Tipo de Grabación',
-                          subtitle: _recordingMode == RecordingMode.clean ? 'Video Limpio' : 'Con Guion',
+                          subtitle: _recordingMode == RecordingMode.clean
+                              ? 'Video Limpio (Solo cámara)'
+                              : 'Con Guion (Cámara + Letra)',
                           onTap: () {
-                            setState(() {
-                              _recordingMode = _recordingMode == RecordingMode.clean
-                                  ? RecordingMode.withScript
-                                  : RecordingMode.clean;
-                            });
                             _toggleMenu();
+                            _openRecordingModeModal();
                           },
                         ),
 
