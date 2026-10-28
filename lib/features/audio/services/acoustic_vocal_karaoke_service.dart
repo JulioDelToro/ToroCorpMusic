@@ -88,16 +88,11 @@ class AcousticVocalKaraokeService {
   /// Muestras consecutivas para confirmar canto / pausa
   static const int _voiceConfirmFrames = 2; // ~60 ms para confirmar canto real sin falsos positivos
   static const int _silenceConfirmFrames = 6; // ~180 ms para confirmar pausa o requinto de guitarra
-
-  /// Límites de duración por palabra (ms) ajustados para que no se quede atrás
-  static const int _minWordHoldMs = 280;
-  static const int _maxWordHoldMs = 1400;
   // ────────────────────────────────────────────────────────────────────────
 
   int _voiceFrames = 0;
   int _silenceFrames = 0;
   bool _confirmedSinging = false;
-  DateTime? _wordStartTime;
   bool _isRunning = false;
 
   AcousticVocalKaraokeService({required this.song}) {
@@ -251,12 +246,10 @@ class AcousticVocalKaraokeService {
     if (!_confirmedSinging && _voiceFrames >= _voiceConfirmFrames) {
       // Transición: silencio -> cantando
       _confirmedSinging = true;
-      _wordStartTime ??= DateTime.now();
       _emitSinging(db, effectiveThreshold);
     } else if (_confirmedSinging && _silenceFrames >= _silenceConfirmFrames) {
       // Transición: cantando -> pausa o requinto de guitarra
       _confirmedSinging = false;
-      _wordStartTime = null;
       _emitWaiting(db);
     } else if (_confirmedSinging) {
       // Continúa cantando: evaluar avance de sílabas
@@ -292,50 +285,8 @@ class AcousticVocalKaraokeService {
       vocalEnergy: _normalizeEnergy(db, threshold),
     );
     _stateController.add(_state);
-
-    // Si estamos en pausa instrumental o requinto, congelar y esperar
-    if (_state.isInstrumentalBreak) {
-      return;
-    }
-
-    final now = DateTime.now();
-    _wordStartTime ??= now;
-    final heldMs = now.difference(_wordStartTime!).inMilliseconds;
-
-    final int targetMs = _wordDurationMs();
-
-    if (heldMs >= targetMs) {
-      _advanceWord();
-      _wordStartTime = now;
-    }
-  }
-
-  int _wordDurationMs() {
-    final lines = song.lines;
-    if (lines.isEmpty) return _minWordHoldMs;
-    final lineIdx = _state.lineIndex.clamp(0, lines.length - 1);
-    final tokens = lines[lineIdx].tokens;
-    if (tokens.isEmpty) return _minWordHoldMs;
-    final wordIdx = _state.wordIndex.clamp(0, tokens.length - 1);
-    final word = tokens[wordIdx].word.replaceAll(RegExp(r'[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]'), '');
-    final int syllables = _countSyllables(word);
-
-    // Ritmo natural y fluido de canto: 320ms base + 110ms por sílaba extra
-    int duration = 320 + (syllables - 1) * 110;
-
-    // Con canto sostenido y enérgico, avanza ágilmente sin atrasarse
-    if (_state.vocalEnergy > 0.45) {
-      duration = (duration * 0.88).round();
-    }
-
-    return duration.clamp(_minWordHoldMs, _maxWordHoldMs);
-  }
-
-  int _countSyllables(String word) {
-    if (word.isEmpty) return 1;
-    final vowels = RegExp(r'[aeiouáéíóúüAEIOUÁÉÍÓÚÜ]');
-    final count = vowels.allMatches(word).length;
-    return count < 1 ? 1 : count;
+    // Nota: El avance ultra preciso de palabras lo gestiona estrictamente
+    // VocalAlignmentMatcher con reconocimiento fonético on-device.
   }
 
   void _advanceWord() {
@@ -355,7 +306,6 @@ class AcousticVocalKaraokeService {
         // Si la siguiente línea es una sección instrumental (Requinto / Solo), pausar inmediatamente:
         if (lines[line].isInstrumental) {
           _confirmedSinging = false;
-          _wordStartTime = null;
           _state = _state.copyWith(
             lineIndex: line,
             wordIndex: 0,
@@ -399,7 +349,6 @@ class AcousticVocalKaraokeService {
       targetLine = lines.length - 1;
     }
 
-    _wordStartTime = DateTime.now();
     _state = _state.copyWith(
       lineIndex: targetLine,
       wordIndex: 0,
@@ -419,7 +368,6 @@ class AcousticVocalKaraokeService {
     final validWord = wordIndex.clamp(0, lines[validLine].tokens.length - 1);
 
     final isInstr = lines[validLine].isInstrumental;
-    _wordStartTime = DateTime.now();
     _state = _state.copyWith(
       lineIndex: validLine,
       wordIndex: validWord,
@@ -443,7 +391,6 @@ class AcousticVocalKaraokeService {
     final validWord = word.clamp(0, lines[validLine].tokens.length - 1);
     final isInstr = lines[validLine].isInstrumental;
 
-    _wordStartTime = DateTime.now();
     _state = _state.copyWith(
       lineIndex: validLine,
       wordIndex: validWord,
@@ -456,7 +403,6 @@ class AcousticVocalKaraokeService {
   }
 
   void nextWordManual() {
-    _wordStartTime = DateTime.now();
     _advanceWord();
   }
 
@@ -472,7 +418,6 @@ class AcousticVocalKaraokeService {
       }
     }
     final isInstr = line < song.lines.length && song.lines[line].isInstrumental;
-    _wordStartTime = DateTime.now();
     _state = _state.copyWith(
       lineIndex: line,
       wordIndex: word,
@@ -488,7 +433,6 @@ class AcousticVocalKaraokeService {
     _voiceFrames = 0;
     _silenceFrames = 0;
     _confirmedSinging = false;
-    _wordStartTime = null;
     _lastDb = -100.0;
     _consecutivePluckFrames = 0;
     _state = const AcousticKaraokeState();

@@ -92,8 +92,6 @@ class TeleprompterController extends ChangeNotifier {
   }
 
   void _onAcousticStateChanged(AcousticKaraokeState state) {
-    _activeLineIndex = state.lineIndex;
-    _activeWordIndex = state.wordIndex;
     _isSinging = state.isSinging;
     _isWaitingForVoice = state.isWaitingForVoice;
     _volumeDb = state.volumeDb;

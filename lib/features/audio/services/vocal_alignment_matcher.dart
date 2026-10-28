@@ -31,7 +31,7 @@ class VocalAlignmentMatcher {
   }
 
   /// Valida si una palabra pronunciada coincide fonéticamente con la palabra esperada en el guion
-  static bool verifyWordMatch(String targetWord, String candidateWord, {double minConfidence = 0.55}) {
+  static bool verifyWordMatch(String targetWord, String candidateWord, {double minConfidence = 0.68}) {
     final cleanTarget = AudioBandpassFilter.normalizeWord(targetWord);
     final cleanCandidate = AudioBandpassFilter.normalizeWord(candidateWord);
     if (cleanTarget.isEmpty || cleanCandidate.isEmpty) return false;
@@ -39,7 +39,7 @@ class VocalAlignmentMatcher {
     return _isMatch(cleanCandidate, cleanTarget, sim, threshold: minConfidence);
   }
 
-  static bool _isMatch(String spoken, String target, double sim, {double threshold = 0.55}) {
+  static bool _isMatch(String spoken, String target, double sim, {double threshold = 0.68}) {
     final cleanTarget = AudioBandpassFilter.normalizeWord(target);
     final cleanSpoken = AudioBandpassFilter.normalizeWord(spoken);
     if (cleanTarget.isEmpty || cleanSpoken.isEmpty) return false;
@@ -60,17 +60,17 @@ class VocalAlignmentMatcher {
 
     // 4. Palabras de 3 letras ("que", "mas", "por", "tan", "sin", "sol"):
     if (cleanTarget.length == 3) {
-      if (sim >= 0.65) return true;
-      if (pSpoken.isNotEmpty && pTarget.isNotEmpty && pSpoken.contains(pTarget)) return true;
+      if (sim >= 0.70) return true;
+      if (pSpoken.isNotEmpty && pTarget.isNotEmpty && pSpoken == pTarget) return true;
       return false;
     }
 
-    // 5. Palabras estándar (>= 4 letras):
+    // 5. Palabras estándar (>= 4 letras) - Ultra precisión requerida
     if (sim >= threshold) return true;
 
     // Prefijo fonético para palabras cantadas con terminación ligada o cortada
     if (cleanTarget.length >= 5 && cleanSpoken.length >= 4) {
-      if (cleanTarget.startsWith(cleanSpoken) || pTarget.startsWith(pSpoken)) {
+      if ((cleanTarget.startsWith(cleanSpoken) || pTarget.startsWith(pSpoken)) && sim >= 0.60) {
         return true;
       }
     }
@@ -189,19 +189,17 @@ class VocalAlignmentMatcher {
       }
     }
 
-    // ── 4. Aplicar Avance Inmediato ──
+    // ── 4. Aplicar Avance Ultra Preciso ──
     if (matchedWordIndex != -1) {
       final targetTokens = lines[matchedLineIndex].tokens;
       int nextWord = matchedWordIndex + 1;
       int nextLine = matchedLineIndex;
 
-      if (nextWord >= targetTokens.length) {
-        if (matchedLineIndex + 1 < lines.length) {
-          nextLine = matchedLineIndex + 1;
-          nextWord = 0;
-        } else {
-          nextWord = targetTokens.length;
-        }
+      // Si se completó el último término de la línea actual:
+      // Conservar la línea actual completamente en amarillo en pantalla
+      // NO brincar de línea hasta que el cantante empiece a cantar la siguiente estrofa.
+      if (nextWord > targetTokens.length) {
+        nextWord = targetTokens.length;
       }
 
       _currentState = _currentState.copyWith(

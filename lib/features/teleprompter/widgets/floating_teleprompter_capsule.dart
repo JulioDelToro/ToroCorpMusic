@@ -68,37 +68,13 @@ class FloatingTeleprompterCapsule extends StatefulWidget {
 
 class _FloatingTeleprompterCapsuleState
     extends State<FloatingTeleprompterCapsule> {
-  final ScrollController _scrollController = ScrollController();
   bool _isConfirmingReset = false;
   Timer? _resetConfirmTimer;
-  bool _isUserScrolling = false;
-  Timer? _userScrollResetTimer;
-
-  @override
-  void didUpdateWidget(FloatingTeleprompterCapsule oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentLineIndex != widget.currentLineIndex && !_isUserScrolling) {
-      _scrollToCurrentLine();
-    }
-  }
 
   @override
   void dispose() {
     _resetConfirmTimer?.cancel();
-    _userScrollResetTimer?.cancel();
-    _scrollController.dispose();
     super.dispose();
-  }
-
-  void _scrollToCurrentLine({bool forceZero = false}) {
-    if (!_scrollController.hasClients || (_isUserScrolling && !forceZero)) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final target = forceZero ? 0.0 : (widget.currentLineIndex * 46.0).clamp(0.0, maxScroll);
-    _scrollController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-    );
   }
 
   void _handleVozTap() {
@@ -118,10 +94,8 @@ class _FloatingTeleprompterCapsuleState
       _resetConfirmTimer?.cancel();
       setState(() {
         _isConfirmingReset = false;
-        _isUserScrolling = false;
       });
       widget.onResetTap?.call();
-      _scrollToCurrentLine(forceZero: true);
     }
   }
 
@@ -155,7 +129,8 @@ class _FloatingTeleprompterCapsuleState
     final screenWidth = MediaQuery.of(context).size.width;
     final effectiveWidth = math.min(widget.width, screenWidth - 16);
     final effectiveLines = _getEffectiveLines();
-    final effectiveLineIndex = widget.currentLineIndex.clamp(0, math.max(0, effectiveLines.length - 1));
+    final int effectiveLineIndex =
+        widget.currentLineIndex.clamp(0, math.max(0, effectiveLines.length - 1));
 
     final bool isEmpty = effectiveLines.isEmpty ||
         (effectiveLines.length == 1 && effectiveLines.first.tokens.isEmpty);
@@ -309,7 +284,7 @@ class _FloatingTeleprompterCapsuleState
           ),
           const SizedBox(width: 10),
 
-          // ── 2. Área Central de Karaoke Scrollable Vertical con Notas ────────
+          // ── 2. Área Central de Karaoke Estable con 3 Líneas y Acordes ────────
           Expanded(
             child: isEmpty
                 ? GestureDetector(
@@ -331,77 +306,61 @@ class _FloatingTeleprompterCapsuleState
                       ),
                     ),
                   )
-                : NotificationListener<ScrollNotification>(
-                    onNotification: (notification) {
-                      if (notification is ScrollStartNotification &&
-                          notification.dragDetails != null) {
-                        _isUserScrolling = true;
-                        _userScrollResetTimer?.cancel();
-                      } else if (notification is ScrollEndNotification) {
-                        _userScrollResetTimer?.cancel();
-                        _userScrollResetTimer =
-                            Timer(const Duration(seconds: 4), () {
-                          if (mounted) {
-                            setState(() {
-                              _isUserScrolling = false;
-                            });
-                            _scrollToCurrentLine();
-                          }
-                        });
-                      }
-                      return false;
-                    },
-                    child: RawScrollbar(
-                      controller: _scrollController,
-                      thumbColor: Colors.white24,
-                      radius: const Radius.circular(4),
-                      thickness: 2.5,
-                      child: SingleChildScrollView(
-                        controller: _scrollController,
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (int lineIdx = 0;
-                                lineIdx < effectiveLines.length;
-                                lineIdx++) ...[
-                              if (lineIdx > 0) const SizedBox(height: 6),
-                              _buildLineItem(
-                                line: effectiveLines[lineIdx],
-                                lineIndex: lineIdx,
-                                isCurrentLine: lineIdx == effectiveLineIndex,
-                                isPastLine: lineIdx < effectiveLineIndex,
-                                activeWordIndex: lineIdx == effectiveLineIndex
-                                    ? widget.currentWordIndex
-                                    : -1,
-                                onWordTap: (wIdx) {
-                                  _isUserScrolling = false;
-                                  _userScrollResetTimer?.cancel();
-                                  if (widget.onLineWordTap != null) {
-                                    widget.onLineWordTap!(lineIdx, wIdx);
-                                  } else if (lineIdx == effectiveLineIndex) {
-                                    widget.onWordTap?.call(wIdx);
-                                  } else if (lineIdx == effectiveLineIndex + 1) {
-                                    widget.onNextLineTap?.call();
-                                  }
-                                },
-                              ),
-                            ],
-                            const SizedBox(height: 10),
-                            const Center(
-                              child: Text(
-                                '• Fin de la canción •',
-                                style: TextStyle(
-                                  color: Colors.white24,
-                                  fontSize: 10.5,
-                                  fontStyle: FontStyle.italic,
-                                ),
+                : ClipRect(
+                    child: SingleChildScrollView(
+                      physics: const NeverScrollableScrollPhysics(),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Línea 1: Línea que se está cantando (permanece en amarillo al terminar)
+                          if (effectiveLineIndex < effectiveLines.length)
+                            _buildLineItem(
+                              line: effectiveLines[effectiveLineIndex],
+                              lineIndex: effectiveLineIndex,
+                              isCurrentLine: true,
+                              isPastLine: false,
+                              activeWordIndex: widget.currentWordIndex,
+                              onWordTap: (wIdx) => widget.onWordTap?.call(wIdx),
+                            ),
+
+                          // Línea 2: Siguiente estrofa para anticipar lectura
+                          if (effectiveLineIndex + 1 < effectiveLines.length) ...[
+                            const SizedBox(height: 3),
+                            _buildLineItem(
+                              line: effectiveLines[effectiveLineIndex + 1],
+                              lineIndex: effectiveLineIndex + 1,
+                              isCurrentLine: false,
+                              isPastLine: false,
+                              activeWordIndex: -1,
+                              onWordTap: (_) => widget.onNextLineTap?.call(),
+                            ),
+                          ] else if (effectiveLines.length > 1) ...[
+                            const SizedBox(height: 2),
+                            const Text(
+                              '• Fin de la canción •',
+                              style: TextStyle(
+                                color: Colors.white24,
+                                fontSize: 10,
+                                fontStyle: FontStyle.italic,
                               ),
                             ),
                           ],
-                        ),
+
+                          // Línea 3: Tercera estrofa de vista previa (si hay espacio)
+                          if (effectiveLineIndex + 2 < effectiveLines.length) ...[
+                            const SizedBox(height: 2),
+                            _buildLineItem(
+                              line: effectiveLines[effectiveLineIndex + 2],
+                              lineIndex: effectiveLineIndex + 2,
+                              isCurrentLine: false,
+                              isPastLine: false,
+                              isThirdLine: true,
+                              activeWordIndex: -1,
+                              onWordTap: null,
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -450,20 +409,21 @@ class _FloatingTeleprompterCapsuleState
     required int lineIndex,
     required bool isCurrentLine,
     required bool isPastLine,
+    bool isThirdLine = false,
     required int activeWordIndex,
-    required ValueChanged<int> onWordTap,
+    ValueChanged<int>? onWordTap,
   }) {
     if (line.isInstrumental) {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => onWordTap(0),
+        onTap: () => onWordTap?.call(0),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
             color: isCurrentLine
                 ? AppColors.chordAmber.withAlpha(35)
                 : Colors.white.withAlpha(12),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: isCurrentLine
                   ? AppColors.chordAmber.withAlpha(150)
@@ -477,21 +437,21 @@ class _FloatingTeleprompterCapsuleState
               Icon(
                 Icons.music_note,
                 color: isCurrentLine ? AppColors.chordAmber : Colors.white60,
-                size: 17,
+                size: 15,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Text(
                 line.instrumentalLabel ?? '🎸 REQUINTO / SOLO',
                 style: TextStyle(
                   color: isCurrentLine ? AppColors.chordAmber : Colors.white70,
-                  fontSize: 11.5,
+                  fontSize: 11.0,
                   fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
+                  letterSpacing: 0.4,
                 ),
               ),
               if (isCurrentLine) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.touch_app, color: Colors.white60, size: 14),
+                const SizedBox(width: 5),
+                const Icon(Icons.touch_app, color: Colors.white60, size: 13),
               ],
             ],
           ),
@@ -501,11 +461,11 @@ class _FloatingTeleprompterCapsuleState
 
     return Wrap(
       spacing: 4.5,
-      runSpacing: 2.0,
+      runSpacing: 1.5,
       children: List.generate(line.tokens.length, (idx) {
         final token = line.tokens[idx];
         final isRead = (isCurrentLine && idx < activeWordIndex) || isPastLine;
-        final isCurrent = isCurrentLine && idx == activeWordIndex;
+        final isCurrent = isCurrentLine && idx == activeWordIndex && activeWordIndex < line.tokens.length;
 
         final Color wordColor;
         final FontWeight fontWeight;
@@ -515,7 +475,7 @@ class _FloatingTeleprompterCapsuleState
         if (isCurrent) {
           wordColor = widget.highlightColor;
           fontWeight = FontWeight.bold;
-          fontSize = 15.0;
+          fontSize = 14.5;
           shadows = [
             BoxShadow(
               color: widget.highlightColor.withAlpha(190),
@@ -526,19 +486,19 @@ class _FloatingTeleprompterCapsuleState
         } else if (isRead) {
           wordColor = widget.highlightColor;
           fontWeight = FontWeight.w600;
-          fontSize = 14.0;
+          fontSize = 13.5;
         } else if (isCurrentLine) {
           wordColor = Colors.white;
           fontWeight = FontWeight.w600;
-          fontSize = 14.0;
-        } else if (lineIndex == widget.currentLineIndex + 1) {
-          wordColor = Colors.white60;
-          fontWeight = FontWeight.w500;
-          fontSize = 12.5;
+          fontSize = 13.5;
+        } else if (isThirdLine) {
+          wordColor = Colors.white38;
+          fontWeight = FontWeight.normal;
+          fontSize = 10.5;
         } else {
           wordColor = Colors.white60;
           fontWeight = FontWeight.w500;
-          fontSize = 12.5;
+          fontSize = 12.0;
         }
 
         final wordStyle = TextStyle(
@@ -565,13 +525,13 @@ class _FloatingTeleprompterCapsuleState
                 chord,
                 style: TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: isCurrentLine ? 9.5 : 8.5,
+                  fontSize: isCurrentLine ? 9.5 : (isThirdLine ? 7.5 : 8.5),
                   fontWeight: FontWeight.bold,
                   color: chordColor,
                   height: 1.0,
                 ),
               ),
-              const SizedBox(height: 1.5),
+              const SizedBox(height: 1.0),
               Text(token.word, style: wordStyle),
             ],
           );
@@ -581,9 +541,9 @@ class _FloatingTeleprompterCapsuleState
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => onWordTap(idx),
+          onTap: onWordTap != null ? () => onWordTap(idx) : null,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2.0, vertical: 1.0),
+            padding: const EdgeInsets.symmetric(horizontal: 2.0, vertical: 0.5),
             child: tokenWidget,
           ),
         );

@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
-import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_typography.dart';
 import '../models/tuning_note.dart';
 import '../services/pitch_detector.dart';
 import '../widgets/guitar_visualizer_widget.dart';
 
-/// Pantalla dedicada de afinador de guitarra para 6 y 12 cuerdas.
-/// Permite afinar cuerda por cuerda con retroalimentación visual precisa en tiempo real.
+/// Pantalla de afinador de guitarra estilo GuitarTuna (6 y 12 cuerdas / Docerola).
+/// 100% código propio vectorial en Flutter, comercialmente vendible.
 class GuitarTunerScreen extends StatefulWidget {
   const GuitarTunerScreen({super.key});
 
@@ -24,7 +23,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
   StreamSubscription<Uint8List>? _recordStreamSubscription;
 
   GuitarType _selectedGuitarType = GuitarType.sixString;
-  int? _lockedStringIndex; // null = Modo Automático, 1..6 o 1..12 = cuerda fija
+  int? _lockedStringIndex; // null = Modo Automático (AUTOM.), 1..6 o 1..12 = cuerda fija
   final List<int> _pcmBuffer = [];
 
   TuningResult _currentResult = const TuningResult(
@@ -98,11 +97,10 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
 
     _pcmBuffer.addAll(chunk);
 
-    // Cada ~2048 muestras (4096 bytes a 22050 Hz = ~92ms), analizamos la frecuencia
     const minBufferSize = 4096;
     if (_pcmBuffer.length >= minBufferSize) {
       final slice = Uint8List.fromList(_pcmBuffer.sublist(0, minBufferSize));
-      _pcmBuffer.removeRange(0, minBufferSize ~/ 2); // 50% de solapamiento para respuesta ágil
+      _pcmBuffer.removeRange(0, minBufferSize ~/ 2);
 
       final detectedFreq = PitchDetector.detectPitchFromPcm16(
         slice,
@@ -112,7 +110,6 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
       if (detectedFreq > 0) {
         _updateFrequency(detectedFreq);
       } else {
-        // Silencio o decaimiento de la cuerda
         if (_currentResult.detectedFrequency > 0) {
           setState(() {
             _currentResult = _pitchDetector.analyzeFrequency(
@@ -140,147 +137,267 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
   void _selectString(int? index) {
     setState(() {
       _lockedStringIndex = index;
-      if (index != null) {
-        // Inicializar indicador en la nota seleccionada
-        _currentResult = _pitchDetector.analyzeFrequency(
-          0,
-          guitarType: _selectedGuitarType,
-          lockedStringIndex: _lockedStringIndex,
-        );
+      _currentResult = _pitchDetector.analyzeFrequency(
+        0,
+        guitarType: _selectedGuitarType,
+        lockedStringIndex: _lockedStringIndex,
+      );
+    });
+  }
+
+  void _toggleGuitarType() {
+    setState(() {
+      if (_selectedGuitarType == GuitarType.sixString) {
+        _selectedGuitarType = GuitarType.twelveString;
+      } else {
+        _selectedGuitarType = GuitarType.sixString;
       }
+      _lockedStringIndex = null;
+      _currentResult = _pitchDetector.analyzeFrequency(
+        0,
+        guitarType: _selectedGuitarType,
+        lockedStringIndex: null,
+      );
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDetected = _currentResult.detectedFrequency > 0;
+    final inTune = _currentResult.isInTune;
+    final cents = _currentResult.centsOffset;
+
+    Color stateColor;
+    if (!isDetected) {
+      stateColor = const Color(0xFF00D084);
+    } else if (inTune) {
+      stateColor = const Color(0xFF00D084); // Verde GuitarTuna
+    } else if (cents < -3.5) {
+      stateColor = const Color(0xFFFF9F0A); // Ámbar grave
+    } else {
+      stateColor = const Color(0xFFFF453A); // Rojo aguda
+    }
+
     return Scaffold(
-      backgroundColor: AppColors.pureBlackOled,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textWhite, size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Column(
-          children: [
-            Text('Afinador de Guitarra', style: AppTypography.sfProHeadline(fontSize: 17)),
-            const Text(
-              'ToroCorp Music',
-              style: TextStyle(color: AppColors.chordAmber, fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        centerTitle: true,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Icon(
-              _isListening ? Icons.mic : Icons.mic_none,
-              color: _isListening ? AppColors.tunerInTuneGreen : AppColors.textSecondary,
-              size: 20,
-            ),
-          ),
-        ],
-      ),
+      backgroundColor: const Color(0xFF121518), // Fondo negro profundo con tono GuitarTuna
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 8),
-
-            // Selector: 6 Cuerdas vs 12 Cuerdas
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: AppColors.cardDark,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.borderDark),
-              ),
+            // ── 1. Barra Superior con Título y Micrófono ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: _buildTypeSegment(
-                      title: '6 Cuerdas',
-                      subtitle: 'Guitarra Estándar',
-                      isSelected: _selectedGuitarType == GuitarType.sixString,
-                      onTap: () {
-                        setState(() {
-                          _selectedGuitarType = GuitarType.sixString;
-                          _lockedStringIndex = null;
-                        });
-                      },
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
                   ),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: _buildTypeSegment(
-                      title: '12 Cuerdas',
-                      subtitle: 'Docerola / Acústica',
-                      isSelected: _selectedGuitarType == GuitarType.twelveString,
-                      onTap: () {
-                        setState(() {
-                          _selectedGuitarType = GuitarType.twelveString;
-                          _lockedStringIndex = null;
-                        });
-                      },
+                    child: isDetected
+                        ? Row(
+                            children: [
+                              Text(
+                                _currentResult.closestNote,
+                                style: TextStyle(
+                                  color: inTune ? const Color(0xFF00D084) : Colors.white,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                inTune
+                                    ? '✓ AFINADA'
+                                    : (cents < -3.5 ? '▲ APRETAR' : '▼ AFLOJAR'),
+                                style: TextStyle(
+                                  color: stateColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Text(
+                                'Comienza a afinar',
+                                style: TextStyle(
+                                  color: Color(0xFF00D084),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.1,
+                                ),
+                              ),
+                              Text(
+                                'tocando cualquier cuerda',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.1,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _isListening
+                          ? const Color(0xFF00D084).withAlpha(40)
+                          : Colors.white.withAlpha(15),
+                      border: Border.all(
+                        color: _isListening
+                            ? const Color(0xFF00D084)
+                            : Colors.white24,
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Icon(
+                      _isListening ? Icons.mic : Icons.mic_off,
+                      color: _isListening ? const Color(0xFF00D084) : Colors.white54,
+                      size: 19,
                     ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 16),
+            // ── 2. Fila de Selector de Instrumento y Switch AUTOM. ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _toggleGuitarType,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _selectedGuitarType == GuitarType.sixString
+                              ? 'Guitarra 6 cuerdas'
+                              : 'Guitarra 12 cuerdas',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 12),
+                      ],
+                    ),
+                  ),
 
-            // Medidor Central de Cents y Aguja
+                  // Switch AUTOM. (Modo automático)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'AUTOM.',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Transform.scale(
+                        scale: 0.8,
+                        child: CupertinoSwitch(
+                          value: _lockedStringIndex == null,
+                          activeTrackColor: const Color(0xFF00D084),
+                          onChanged: (bool value) {
+                            setState(() {
+                              _lockedStringIndex = null;
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // ── 3. Rejilla y Medidor de Dial GuitarTuna con ♭ y ♯ ──
+            SizedBox(
+              height: 140,
+              child: Stack(
+                children: [
+                  // Cuadrícula y dial circular central
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _TuningGridDialPainter(
+                        centsOffset: cents,
+                        isDetected: isDetected,
+                        isInTune: inTune,
+                        stateColor: stateColor,
+                      ),
+                    ),
+                  ),
+
+                  // Pill Banner flotante debajo del dial
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 6,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF212529).withAlpha(220),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isDetected ? stateColor.withAlpha(120) : Colors.white.withAlpha(25),
+                            width: 1.0,
+                          ),
+                          boxShadow: isDetected
+                              ? [
+                                  BoxShadow(
+                                    color: stateColor.withAlpha(40),
+                                    blurRadius: 10,
+                                    spreadRadius: 1,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Text(
+                          !isDetected
+                              ? 'Toca cualquier cuerda para comenzar a afinar'
+                              : '${cents >= 0 ? '+' : ''}${cents.toStringAsFixed(1)} cents  •  ${_currentResult.detectedFrequency.toStringAsFixed(1)} Hz',
+                          style: TextStyle(
+                            color: isDetected ? stateColor : Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── 4. Guitarra Visual Interactiva (Pala, Clavijas y Cuerdas) ──
             Expanded(
-              child: _buildGaugeDisplay(),
-            ),
-
-            // Guitarra Visual Interactiva con Pastillas Seleccionables y Cuerdas en Color
-            GuitarVisualizerWidget(
-              guitarType: _selectedGuitarType,
-              lockedStringIndex: _lockedStringIndex,
-              detectedStringIndex: _currentResult.targetStringIndex,
-              currentResult: _currentResult,
-              onSelectString: _selectString,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTypeSegment({
-    required String title,
-    required String subtitle,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.chordAmber : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: isSelected ? Colors.black : AppColors.textWhite,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: isSelected ? Colors.black87 : AppColors.textSecondary,
-                fontSize: 10,
+              child: GuitarVisualizerWidget(
+                guitarType: _selectedGuitarType,
+                lockedStringIndex: _lockedStringIndex,
+                detectedStringIndex: _currentResult.targetStringIndex,
+                currentResult: _currentResult,
+                onSelectString: _selectString,
               ),
             ),
           ],
@@ -288,195 +405,145 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
       ),
     );
   }
+}
 
-  Widget _buildGaugeDisplay() {
-    final cents = _currentResult.centsOffset;
-    final inTune = _currentResult.isInTune;
-    final isDetected = _currentResult.detectedFrequency > 0;
+/// Dibuja la rejilla milimétrica y el dial central con ♭, ♯ y aguja dinámica estilo GuitarTuna.
+class _TuningGridDialPainter extends CustomPainter {
+  final double centsOffset;
+  final bool isDetected;
+  final bool isInTune;
+  final Color stateColor;
 
-    Color stateColor;
-    String statusText;
+  _TuningGridDialPainter({
+    required this.centsOffset,
+    required this.isDetected,
+    required this.isInTune,
+    required this.stateColor,
+  });
 
-    if (!isDetected) {
-      stateColor = AppColors.textSecondary;
-      statusText = _lockedStringIndex != null
-          ? 'Toca la cuerda $_lockedStringIndexª para afinar'
-          : 'Toca una cuerda de la guitarra';
-    } else if (inTune) {
-      stateColor = AppColors.tunerInTuneGreen;
-      statusText = '✓ AFINADA PERFECTA';
-    } else if (cents < -3.5) {
-      stateColor = const Color(0xFFFF9F0A);
-      statusText = '▲ MUY GRAVE (Apretar clavija)';
-    } else {
-      stateColor = const Color(0xFFFF453A);
-      statusText = '▼ MUY AGUDA (Aflojar clavija)';
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    final centerY = h * 0.40;
+
+    // ── 1. Cuadrícula de Fondo (Grid Milimétrico) ──
+    final gridPaint = Paint()
+      ..color = Colors.white.withAlpha(12)
+      ..strokeWidth = 0.8;
+
+    const gridSpacing = 22.0;
+    // Líneas verticales de cuadrícula
+    for (double x = (w / 2) % gridSpacing; x < w; x += gridSpacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, h - 30), gridPaint);
+    }
+    // Líneas horizontales de cuadrícula
+    for (double y = 0; y < h - 30; y += gridSpacing) {
+      canvas.drawLine(Offset(0, y), Offset(w, y), gridPaint);
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Nota Principal en Letra Grande
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-            decoration: BoxDecoration(
-              color: stateColor.withAlpha(25),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: stateColor.withAlpha(120), width: 1.8),
-              boxShadow: inTune
-                  ? [
-                      BoxShadow(
-                        color: stateColor.withAlpha(160),
-                        blurRadius: 20,
-                        spreadRadius: 3,
-                      )
-                    ]
-                  : null,
-            ),
-            child: Text(
-              _currentResult.closestNote,
-              style: TextStyle(
-                fontSize: 42,
-                fontWeight: FontWeight.bold,
-                color: inTune ? AppColors.tunerInTuneGreen : AppColors.textWhite,
-                fontFamily: 'monospace',
-                letterSpacing: 2,
-              ),
-            ),
-          ),
+    // Línea guía vertical central (Cero cents)
+    final centerLinePaint = Paint()
+      ..color = Colors.white.withAlpha(35)
+      ..strokeWidth = 1.2;
+    canvas.drawLine(Offset(w / 2, 0), Offset(w / 2, h - 30), centerLinePaint);
 
-          const SizedBox(height: 6),
-
-          // Frecuencia en Hz y Meta
-          Text(
-            isDetected
-                ? '${_currentResult.detectedFrequency.toStringAsFixed(1)} Hz  •  Meta: ${_currentResult.targetFrequency.toStringAsFixed(1)} Hz'
-                : 'Esperando sonido...',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          // Barra / Aguja de Afinación (-50 a +50 cents)
-          Column(
-            children: [
-              // Marcas de regla (-50, -25, 0, +25, +50)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('-50', style: TextStyle(color: Colors.white30, fontSize: 9)),
-                    Text('-25', style: TextStyle(color: Colors.white30, fontSize: 9)),
-                    Text('0', style: TextStyle(color: AppColors.tunerInTuneGreen, fontSize: 11, fontWeight: FontWeight.bold)),
-                    Text('+25', style: TextStyle(color: Colors.white30, fontSize: 9)),
-                    Text('+50', style: TextStyle(color: Colors.white30, fontSize: 9)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 4),
-
-              // Riel y Aguja Dinámica
-              SizedBox(
-                height: 32,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    // Mapear cents (-50 a +50) a posición horizontal (0 a width)
-                    final double normalized = ((cents.clamp(-50.0, 50.0) + 50.0) / 100.0);
-                    final double needleX = (normalized * width).clamp(8.0, width - 8.0);
-
-                    return Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // Riel de fondo
-                        Container(
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: AppColors.cardDark,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-
-                        // Zona central afinada (verde)
-                        Container(
-                          width: 22,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: AppColors.tunerInTuneGreen.withAlpha(120),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-
-                        // Aguja indicadora
-                        Positioned(
-                          left: needleX - 3,
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 22,
-                                decoration: BoxDecoration(
-                                  color: stateColor,
-                                  borderRadius: BorderRadius.circular(3),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: stateColor.withAlpha(200),
-                                      blurRadius: 6,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-
-              const SizedBox(height: 3),
-              Text(
-                isDetected ? '${cents >= 0 ? '+' : ''}${cents.toStringAsFixed(1)} cents' : '0.0 cents',
-                style: TextStyle(
-                  color: stateColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 8),
-
-          // Banner de Estado
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: stateColor.withAlpha(30),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: stateColor.withAlpha(100)),
-            ),
-            child: Text(
-              statusText,
-              style: TextStyle(
-                color: stateColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
+    // ── 2. Letras ♭ (Bemol) y ♯ (Sostenido) a los Costados ──
+    final textPainterFlat = TextPainter(
+      text: const TextSpan(
+        text: '♭',
+        style: TextStyle(
+          color: Color(0xFF8B949E),
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
       ),
-    );
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainterFlat.paint(canvas, Offset(24, centerY - 14));
+
+    final textPainterSharp = TextPainter(
+      text: const TextSpan(
+        text: '♯',
+        style: TextStyle(
+          color: Color(0xFF8B949E),
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainterSharp.paint(canvas, Offset(w - 38, centerY - 14));
+
+    // ── 3. Dial Circular Central (Objetivo de Afinación) ──
+    final ringRadius = 16.0;
+    final ringCenter = Offset(w / 2, centerY);
+
+    final ringPaint = Paint()
+      ..color = isInTune ? const Color(0xFF00D084) : const Color(0xFF5A626C)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+
+    if (isInTune) {
+      final glowRing = Paint()
+        ..color = const Color(0xFF00D084).withAlpha(140)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5.0
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+      canvas.drawCircle(ringCenter, ringRadius, glowRing);
+    }
+
+    canvas.drawCircle(ringCenter, ringRadius, ringPaint);
+
+    // Puntero triangular hacia abajo en la base del círculo (v)
+    final pointerPath = Path();
+    pointerPath.moveTo(w / 2 - 5, centerY + ringRadius - 1);
+    pointerPath.lineTo(w / 2 + 5, centerY + ringRadius - 1);
+    pointerPath.lineTo(w / 2, centerY + ringRadius + 7);
+    pointerPath.close();
+
+    final pointerPaint = Paint()
+      ..color = isInTune ? const Color(0xFF00D084) : const Color(0xFF5A626C)
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(pointerPath, pointerPaint);
+
+    // ── 4. Aguja Dinámica Indicadora de Desviación (-50 a +50 cents) ──
+    if (isDetected) {
+      // Mapear desviación de cents a coordenadas horizontales (entre 48 y w - 48)
+      final minX = 52.0;
+      final maxX = w - 52.0;
+      final double normalized = ((centsOffset.clamp(-50.0, 50.0) + 50.0) / 100.0);
+      final double needleX = minX + (normalized * (maxX - minX));
+
+      // Línea vertical brillante de la aguja
+      final needleGlow = Paint()
+        ..color = stateColor.withAlpha(160)
+        ..strokeWidth = 4.5
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.0);
+      canvas.drawLine(Offset(needleX, 4), Offset(needleX, h - 36), needleGlow);
+
+      final needleLine = Paint()
+        ..color = stateColor
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(Offset(needleX, 4), Offset(needleX, h - 36), needleLine);
+
+      // Si está afinada en el centro: destello blanco
+      if (isInTune) {
+        final coreFlash = Paint()
+          ..color = Colors.white
+          ..strokeWidth = 1.4;
+        canvas.drawLine(Offset(needleX, 8), Offset(needleX, h - 40), coreFlash);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TuningGridDialPainter oldDelegate) {
+    return oldDelegate.centsOffset != centsOffset ||
+        oldDelegate.isDetected != isDetected ||
+        oldDelegate.isInTune != isInTune ||
+        oldDelegate.stateColor != stateColor;
   }
 }

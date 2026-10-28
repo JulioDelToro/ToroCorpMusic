@@ -47,16 +47,16 @@ void main() {
     expect(matcher.currentState.currentLineIndex, equals(0));
     expect(matcher.currentState.currentWordIndex, equals(2));
 
-    // El reconocimiento añade "ligera" (completa verso 0 y avanza a verso 1)
+    // El reconocimiento añade "ligera" (completa el verso 0 dejándolo 100% amarillo en pantalla)
     matcher.processUtterance("De música ligera");
-    expect(matcher.currentState.currentLineIndex, equals(1));
-    expect(matcher.currentState.currentWordIndex, equals(0));
+    expect(matcher.currentState.currentLineIndex, equals(0));
+    expect(matcher.currentState.currentWordIndex, equals(3)); // 3 de 3 palabras en verso 0
 
-    // El cantante hace una pausa / solo de guitarra: el teleprompter se queda esperando pacientemente
-    expect(matcher.currentState.currentLineIndex, equals(1));
-    expect(matcher.currentState.currentWordIndex, equals(0));
+    // El teleprompter conserva el verso 0 en amarillo esperando que el cantante empiece el verso 1
+    expect(matcher.currentState.currentLineIndex, equals(0));
+    expect(matcher.currentState.currentWordIndex, equals(3));
 
-    // El cantante reanuda y canta la siguiente estrofa
+    // El cantante canta la siguiente estrofa: ahora sí salta al verso 1
     matcher.resetUtterance();
     matcher.processUtterance("Nada nos");
     expect(matcher.currentState.currentLineIndex, equals(1));

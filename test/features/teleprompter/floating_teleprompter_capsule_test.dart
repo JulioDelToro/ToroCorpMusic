@@ -164,41 +164,41 @@ void main() {
     expect(find.text('Voz'), findsOneWidget);
   });
 
-  testWidgets('FloatingTeleprompterCapsule allows scrolling down and tapping future lines to update song position', (tester) async {
+  testWidgets('FloatingTeleprompterCapsule displays 3 lines: current line remains fully yellow when finished, line 2 in preview', (tester) async {
     final lines = [
-      const LyricLine(tokens: [LyricToken(word: 'Línea1_palabra1'), LyricToken(word: 'Línea1_palabra2')]),
-      const LyricLine(tokens: [LyricToken(word: 'Línea2_palabra1'), LyricToken(word: 'Línea2_palabra2')]),
-      const LyricLine(tokens: [LyricToken(word: 'Línea3_palabra1'), LyricToken(word: 'Línea3_palabra2')]),
+      const LyricLine(tokens: [LyricToken(word: 'Ella'), LyricToken(word: 'durmió')]),
+      const LyricLine(tokens: [LyricToken(word: 'Y'), LyricToken(word: 'yo')]),
+      const LyricLine(tokens: [LyricToken(word: 'Despiértame')]),
     ];
-
-    int tappedLine = -1;
-    int tappedWord = -1;
 
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: FloatingTeleprompterCapsule(
           allLines: lines,
           currentLineIndex: 0,
-          currentWordIndex: 0,
-          onLineWordTap: (l, w) {
-            tappedLine = l;
-            tappedWord = w;
-          },
+          currentWordIndex: 2, // Terminada la primera línea (2 de 2 palabras)
+          highlightColor: const Color(0xFFFFB800),
         ),
       ),
     ));
 
-    // Scroll hacia abajo para ver la línea 3
-    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -100));
-    await tester.pumpAndSettle();
+    // Ambas palabras de la línea 1 deben estar en pantalla y pintadas en amarillo
+    expect(find.text('Ella'), findsOneWidget);
+    expect(find.text('durmió'), findsOneWidget);
 
-    expect(find.text('Línea3_palabra2'), findsOneWidget);
+    final ellaText = tester.widget<Text>(find.text('Ella'));
+    expect(ellaText.style?.color, equals(const Color(0xFFFFB800)));
 
-    // Tocar una palabra de la línea 3 para saltar la canción hasta allí
-    await tester.tap(find.text('Línea3_palabra2'));
-    await tester.pumpAndSettle();
+    final durmioText = tester.widget<Text>(find.text('durmió'));
+    expect(durmioText.style?.color, equals(const Color(0xFFFFB800)));
 
-    expect(tappedLine, equals(2));
-    expect(tappedWord, equals(1));
+    // La siguiente línea (Y yo) debe estar visible debajo para anticipar lectura pero en blanco/preview
+    expect(find.text('Y'), findsOneWidget);
+    expect(find.text('yo'), findsOneWidget);
+    final yText = tester.widget<Text>(find.text('Y'));
+    expect(yText.style?.color, equals(Colors.white60));
+
+    // La tercera línea (Despiértame) debe estar visible debajo
+    expect(find.text('Despiértame'), findsOneWidget);
   });
 }
