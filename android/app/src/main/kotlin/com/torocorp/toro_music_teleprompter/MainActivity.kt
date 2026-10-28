@@ -76,8 +76,19 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    val loadedCues = mutableListOf<DynamicCue>()
+                    val cleanUpBitmaps = {
+                        for (cue in loadedCues) {
+                            try {
+                                if (!cue.bitmap.isRecycled) {
+                                    cue.bitmap.recycle()
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                        loadedCues.clear()
+                    }
+
                     try {
-                        val loadedCues = mutableListOf<DynamicCue>()
 
                         // 1. Cargar cues dinámicas si fueron provistas
                         if (cuesData != null && cuesData.isNotEmpty()) {
@@ -148,16 +159,13 @@ class MainActivity : FlutterActivity() {
                                 .build()
 
                             val teleprompterOverlay = object : BitmapOverlay() {
+                                private var lastIndex = 0
+
                                 override fun getBitmap(presentationTimeUs: Long): Bitmap {
-                                    var activeBitmap = loadedCues.first().bitmap
-                                    for (cue in loadedCues) {
-                                        if (cue.startTimeUs <= presentationTimeUs) {
-                                            activeBitmap = cue.bitmap
-                                        } else {
-                                            break
-                                        }
+                                    while (lastIndex + 1 < loadedCues.size && loadedCues[lastIndex + 1].startTimeUs <= presentationTimeUs) {
+                                        lastIndex++
                                     }
-                                    return activeBitmap
+                                    return loadedCues[lastIndex].bitmap
                                 }
 
                                 override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
@@ -189,6 +197,7 @@ class MainActivity : FlutterActivity() {
 
                         // Si no hay ningún overlay que incrustar, retornar el video original de inmediato
                         if (textureOverlays.isEmpty()) {
+                            cleanUpBitmaps()
                             safeReply(videoPath, false)
                             return@setMethodCallHandler
                         }
@@ -215,6 +224,7 @@ class MainActivity : FlutterActivity() {
                             .addListener(object : Transformer.Listener {
                                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                                     Log.i(TAG, "Video con teleprompter procesado exitosamente: ${outputFile.absolutePath}")
+                                    cleanUpBitmaps()
                                     safeReply(outputPath, true)
                                 }
 
@@ -224,6 +234,7 @@ class MainActivity : FlutterActivity() {
                                     exportException: ExportException
                                 ) {
                                     Log.e(TAG, "Media3 Transformer error: ${exportException.message} (${exportException.errorCodeName})", exportException)
+                                    cleanUpBitmaps()
                                     // Fallback seguro al video de la cámara
                                     safeReply(videoPath, false)
                                 }
@@ -233,6 +244,7 @@ class MainActivity : FlutterActivity() {
                         transformer.start(editedMediaItem, outputFile.absolutePath)
                     } catch (t: Throwable) {
                         Log.e(TAG, "Error iniciando composición: ${t.message}", t)
+                        cleanUpBitmaps()
                         safeReply(videoPath, false)
                     }
                 }

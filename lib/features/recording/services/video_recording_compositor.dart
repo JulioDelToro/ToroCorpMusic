@@ -171,27 +171,28 @@ class VideoRecordingCompositor {
     const vozWidth = 160.0;
     const vozHeight = 78.0;
 
-    // Pastilla "Voz" dorada con halo
+    // Pastilla "Voz" dorada con halo cuando isSinging es true
     final vozRect = ui.RRect.fromRectAndRadius(
       const ui.Rect.fromLTWH(vozLeft, vozTop, vozWidth, vozHeight),
       const ui.Radius.circular(39),
     );
     final vozBg = ui.Paint()
-      ..color = const ui.Color(0x28F5A623)
+      ..color = isSinging ? const ui.Color(0x38F5A623) : const ui.Color(0x18FFFFFF)
       ..style = ui.PaintingStyle.fill;
     canvas.drawRRect(vozRect, vozBg);
 
     final vozBorder = ui.Paint()
-      ..color = const ui.Color(0xFFF5A623)
+      ..color = isSinging ? const ui.Color(0xFFF5A623) : const ui.Color(0x50FFFFFF)
       ..style = ui.PaintingStyle.stroke
       ..strokeWidth = 2.5;
     canvas.drawRRect(vozRect, vozBorder);
 
     // Texto "🎤 Voz"
+    final vozTextColor = isSinging ? const ui.Color(0xFFF5A623) : const ui.Color(0xB3FFFFFF);
     final vozBuilder = ui.ParagraphBuilder(
       ui.ParagraphStyle(textAlign: ui.TextAlign.center, fontSize: 30, maxLines: 1),
     )
-      ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFF5A623), fontWeight: ui.FontWeight.bold))
+      ..pushStyle(ui.TextStyle(color: vozTextColor, fontWeight: ui.FontWeight.bold))
       ..addText('🎤 Voz');
     final vozPara = vozBuilder.build()..layout(const ui.ParagraphConstraints(width: vozWidth));
     canvas.drawParagraph(vozPara, const ui.Offset(vozLeft, vozTop + 20));

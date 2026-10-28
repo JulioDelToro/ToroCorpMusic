@@ -151,6 +151,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     LyricLine? nextLine,
     LyricLine? thirdLine,
     int elapsedSeconds,
+    bool isSinging,
   })> _recordedCueTimeline = [];
   DateTime? _recordingStartTime;
   int _lastRecordedLineIndex = -1;
@@ -223,6 +224,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   void _recordCurrentStateCue(int timeMs) {
     final currentLineIdx = _teleprompterController.currentLineIndex;
     final currentWordIdx = _teleprompterController.activeWordIndex;
+    final isSinging = _teleprompterController.isSinging;
     _lastRecordedLineIndex = currentLineIdx;
     _lastRecordedWordIndex = currentWordIdx;
 
@@ -249,6 +251,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       nextLine: nextL,
       thirdLine: thirdL,
       elapsedSeconds: timeMs ~/ 1000,
+      isSinging: isSinging,
     ));
   }
 
@@ -504,6 +507,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         setState(() {
           _recordingSeconds++;
         });
+        // Si graba con guion, registrar cue de actualización de tiempo para el cronómetro del video
+        if (_recordingMode == RecordingMode.withScript && _recordingStartTime != null) {
+          final elapsedMs = DateTime.now().difference(_recordingStartTime!).inMilliseconds;
+          _recordCurrentStateCue(elapsedMs);
+        }
       }
     });
 
@@ -580,6 +588,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
               thirdLyricLine: cue.thirdLine,
               activeWordIndex: cue.wordIndex,
               elapsedSeconds: cue.elapsedSeconds,
+              isSinging: cue.isSinging,
               highlightColor: const Color(0xFFFFD54F),
               outputPath: cuePngPath,
             );
