@@ -2,9 +2,11 @@ package com.torocorp.toro_music_teleprompter
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.annotation.NonNull
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -15,6 +17,7 @@ import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.OverlaySettings
 import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
@@ -30,6 +33,7 @@ private data class DynamicCue(val startTimeUs: Long, val bitmap: Bitmap)
 
 @UnstableApi
 class MainActivity : FlutterActivity() {
+    private val TAG = "ToroCorpMusic"
     private val CHANNEL = "com.torocorp.toro_music_teleprompter/video_compositor"
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -40,7 +44,7 @@ class MainActivity : FlutterActivity() {
                 "compositeVideoWithOverlay" -> {
                     val videoPath = call.argument<String>("videoPath")
                     val outputPath = call.argument<String>("outputPath")
-                    val cuesData = call.argument<List<Map<String, Any>>>("cues")
+                    val cuesData = call.argument<List<*>>("cues")
                     val overlayPath = call.argument<String>("overlayPath")
                     val watermarkPath = call.argument<String>("watermarkPath")
 
@@ -77,7 +81,8 @@ class MainActivity : FlutterActivity() {
 
                         // 1. Cargar cues dinámicas si fueron provistas
                         if (cuesData != null && cuesData.isNotEmpty()) {
-                            for (entry in cuesData) {
+                            for (item in cuesData) {
+                                val entry = item as? Map<*, *> ?: continue
                                 val path = entry["imagePath"] as? String ?: continue
                                 val timeMs = (entry["startTimeMs"] as? Number)?.toLong() ?: 0L
                                 val file = File(path)
@@ -105,11 +110,39 @@ class MainActivity : FlutterActivity() {
                         // Lista de superposiciones (Overlays)
                         val textureOverlays = mutableListOf<TextureOverlay>()
 
+                        // Determinar dimensiones efectivas del video para escala proporcional
+                        var videoW = 1080f
+                        var videoH = 1920f
+                        try {
+                            val retriever = MediaMetadataRetriever()
+                            retriever.setDataSource(inputFile.absolutePath)
+                            val rotStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) ?: "0"
+                            val rot = rotStr.toIntOrNull() ?: 0
+                            val rawW = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull() ?: 1080f
+                            val rawH = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull() ?: 1920f
+                            retriever.release()
+
+                            if (rot == 90 || rot == 270) {
+                                videoW = rawH
+                                videoH = rawW
+                            } else {
+                                videoW = rawW
+                                videoH = rawH
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "No se pudieron extraer dimensiones de video: ${e.message}")
+                        }
+
                         // 3. Crear overlay de teleprompter dinámico
                         if (loadedCues.isNotEmpty()) {
+                            // Proporción exacta de la cápsula (1080x320) respecto al fotograma de video
+                            val scaleX = 0.92f
+                            val scaleY = (scaleX * (320f / 1080f) * (videoW / videoH)).coerceIn(0.12f, 0.25f)
+
+                            // En coordenadas NDC OpenGL: +Y es arriba (cerca de la cámara frontal), 0 es centro
                             val teleprompterSettings = OverlaySettings.Builder()
-                                .setScale(0.92f, 0.92f)
-                                .setBackgroundFrameAnchor(0f, -0.65f)
+                                .setScale(scaleX, scaleY)
+                                .setBackgroundFrameAnchor(0f, 0.70f)
                                 .setOverlayFrameAnchor(0f, 0f)
                                 .setAlphaScale(1.0f)
                                 .build()
@@ -140,9 +173,12 @@ class MainActivity : FlutterActivity() {
                             if (wmFile.exists()) {
                                 val wmBmp = BitmapFactory.decodeFile(watermarkPath)
                                 if (wmBmp != null) {
+                                    val wmScaleX = 0.35f
+                                    val wmScaleY = (wmScaleX * (90f / 360f) * (videoW / videoH)).coerceIn(0.04f, 0.10f)
+
                                     val wmSettings = OverlaySettings.Builder()
-                                        .setScale(0.35f, 0.35f)
-                                        .setBackgroundFrameAnchor(0.70f, 0.85f)
+                                        .setScale(wmScaleX, wmScaleY)
+                                        .setBackgroundFrameAnchor(0.70f, -0.85f)
                                         .setOverlayFrameAnchor(0f, 0f)
                                         .setAlphaScale(0.85f)
                                         .build()
@@ -169,11 +205,16 @@ class MainActivity : FlutterActivity() {
                             outputFile.delete()
                         }
 
+                        // Factory con fallback habilitado para compatibilidad universal en cualquier sensor/hardware
+                        val encoderFactory = DefaultEncoderFactory.Builder(applicationContext)
+                            .setEnableFallback(true)
+                            .build()
+
                         val transformer = Transformer.Builder(applicationContext)
-                            .setVideoMimeType(MimeTypes.VIDEO_H264)
-                            .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                            .setEncoderFactory(encoderFactory)
                             .addListener(object : Transformer.Listener {
                                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                    Log.i(TAG, "Video con teleprompter procesado exitosamente: ${outputFile.absolutePath}")
                                     safeReply(outputPath, true)
                                 }
 
@@ -182,7 +223,8 @@ class MainActivity : FlutterActivity() {
                                     exportResult: ExportResult,
                                     exportException: ExportException
                                 ) {
-                                    // Fallback seguro al video original
+                                    Log.e(TAG, "Media3 Transformer error: ${exportException.message} (${exportException.errorCodeName})", exportException)
+                                    // Fallback seguro al video de la cámara
                                     safeReply(videoPath, false)
                                 }
                             })
@@ -190,6 +232,7 @@ class MainActivity : FlutterActivity() {
 
                         transformer.start(editedMediaItem, outputFile.absolutePath)
                     } catch (t: Throwable) {
+                        Log.e(TAG, "Error iniciando composición: ${t.message}", t)
                         safeReply(videoPath, false)
                     }
                 }

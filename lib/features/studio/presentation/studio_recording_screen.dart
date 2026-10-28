@@ -588,7 +588,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
           if (compositedResult.composited && File(compositedResult.path).existsSync()) {
             finalVideoPath = compositedResult.path;
             isCompositedSuccess = true;
-            tempFilesToClean.add(File(compositedResult.path));
           }
 
           // Generar también archivo de subtítulos sincronizados .srt con los tiempos reales
@@ -628,23 +627,32 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
           if (compositedResult.composited && File(compositedResult.path).existsSync()) {
             finalVideoPath = compositedResult.path;
-            tempFilesToClean.add(File(compositedResult.path));
+            isCompositedSuccess = true;
           }
         }
       } catch (e) {
         debugPrint('ToroCorp Music: Info composición teleprompter: $e');
-      } finally {
-        // Borrar archivos temporales (PNGs, videos intermedios)
-        for (final file in tempFilesToClean) {
-          try {
-            if (file.existsSync()) {
-              file.deleteSync();
-            }
-          } catch (_) {}
-        }
       }
 
+      // Guardar en la Galería ANTES de eliminar archivos intermedios
       await _saveVideoToGallery(finalVideoPath);
+
+      // Si se generó un video compuesto temporal, ahora sí se borra de la caché interna
+      if (isCompositedSuccess && finalVideoPath != videoFile.path) {
+        try {
+          final f = File(finalVideoPath);
+          if (f.existsSync()) f.deleteSync();
+        } catch (_) {}
+      }
+
+      // Borrar PNGs y subtítulos temporales
+      for (final file in tempFilesToClean) {
+        try {
+          if (file.existsSync()) {
+            file.deleteSync();
+          }
+        } catch (_) {}
+      }
     }
 
     // Mostrar anuncio intersticial al guardar
