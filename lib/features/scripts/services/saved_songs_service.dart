@@ -12,11 +12,15 @@ class SavedSongsService {
 
   Future<File?> _getFile() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await getApplicationDocumentsDirectory().timeout(const Duration(milliseconds: 600));
       return File('${dir.path}/$_fileName');
     } catch (e) {
       debugPrint('ToroCorp Music: Info path_provider: $e');
-      return null;
+      try {
+        return File('${Directory.systemTemp.path}/$_fileName');
+      } catch (_) {
+        return null;
+      }
     }
   }
 

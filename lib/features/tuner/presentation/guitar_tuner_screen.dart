@@ -189,10 +189,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
+                  const BackButton(color: Colors.white),
                   const SizedBox(width: 4),
                   Expanded(
                     child: isDetected
@@ -226,7 +223,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: const [
                               Text(
-                                'Comienza a afinar',
+                                'Afinador de Guitarra',
                                 style: TextStyle(
                                   color: Color(0xFF00D084),
                                   fontSize: 16,
@@ -235,7 +232,7 @@ class _GuitarTunerScreenState extends State<GuitarTunerScreen> {
                                 ),
                               ),
                               Text(
-                                'tocando cualquier cuerda',
+                                'Toca cualquier cuerda para afinar',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 15,

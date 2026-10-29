@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/widgets/brawl_gold_shimmer.dart';
 import '../../audio/services/acoustic_vocal_karaoke_service.dart';
 import '../../audio/services/sherpa_onnx_vocal_service.dart';
 import '../../audio/services/vocal_alignment_matcher.dart';
@@ -20,10 +21,12 @@ import '../../recording/models/recording_mode.dart';
 import '../../recording/services/video_recording_compositor.dart';
 import '../../scripts/models/song_script.dart';
 import '../../scripts/presentation/saved_songs_dialog.dart';
+import '../../scripts/presentation/song_search_dialog.dart';
 import '../../scripts/services/saved_songs_service.dart';
 import '../../teleprompter/controllers/teleprompter_controller.dart';
 import '../../teleprompter/widgets/floating_teleprompter_capsule.dart';
 import '../../tuner/presentation/guitar_tuner_screen.dart';
+import '../../metronome/presentation/metronome_screen.dart';
 import '../../tutorials/widgets/onboarding_tour_dialog.dart';
 
 /// Formatos de relación de aspecto de video
@@ -113,7 +116,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   // Controlador de Cámara
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
-  bool _isCameraActive = true; // Permite activar o desactivar la cámara (Modo solo Karaoke)
+  bool _isCameraActive = false; // Permite activar o desactivar la cámara (Modo solo Karaoke)
 
   // Motor Acústico de Karaoke en Tiempo Real (Continuo, sin bips ni desconexiones)
   late AcousticVocalKaraokeService _acousticService;
@@ -140,7 +143,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   Timer? _recordingTimer;
   final bool _isMirrorMode = false;
   bool _hasSinglePass4K = false;
-  RecordingMode _recordingMode = RecordingMode.clean;
+  final RecordingMode _recordingMode = RecordingMode.clean;
 
   // Registro dinámico de cues para incrustación sincronizada en el video
   final List<({
@@ -178,8 +181,21 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
     _vocalMatcher = VocalAlignmentMatcher(_currentSong);
     _acousticService = AcousticVocalKaraokeService(song: _currentSong);
+
+    _triggerService = HandsFreeTriggerService(
+      onCountdownStart: () {
+        setState(() {});
+      },
+      onCountdownComplete: () {
+        _startRecordingProcess();
+      },
+    );
+
     _sherpaService = SherpaOnnxVocalService(
       onUtterance: (utterance) {
+        if (!_isRecording) {
+          _triggerService.handleVoiceKeyword(utterance);
+        }
         _vocalMatcher.processUtterance(utterance);
       },
       onEndpoint: () {
@@ -196,15 +212,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       acousticService: _acousticService,
     );
     _teleprompterController.addListener(_onTeleprompterUpdated);
-
-    _triggerService = HandsFreeTriggerService(
-      onCountdownStart: () {
-        setState(() {});
-      },
-      onCountdownComplete: () {
-        _startRecordingProcess();
-      },
-    );
 
     // Solicitar permisos nativos e inicializar hardware
     _checkAndRequestPermissions();
@@ -265,7 +272,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       final cameraGranted = statuses[Permission.camera]?.isGranted ?? false;
       final micGranted = statuses[Permission.microphone]?.isGranted ?? false;
 
-      if (cameraGranted) {
+      if (cameraGranted && _isCameraActive) {
         await _initializeCamera();
       }
       if (micGranted) {
@@ -281,14 +288,16 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         }));
       }
 
-      if (!cameraGranted || !micGranted) {
+      if ((_isCameraActive && !cameraGranted) || !micGranted) {
         if (mounted) {
           _showPermissionsDialog();
         }
       }
     } catch (_) {
       // Entorno de pruebas o fallback
-      await _initializeCamera();
+      if (_isCameraActive) {
+        await _initializeCamera();
+      }
       unawaited(_sherpaService.initialize().then((ready) async {
         if (ready && mounted) {
           final started = await _sherpaService.startListening();
@@ -793,153 +802,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  // Cuadro de diálogo modal para seleccionar el tipo de grabación (Limpio vs Con Guion)
-  void _openRecordingModeModal() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Tipo de Grabación', style: AppTypography.sfProHeadline()),
-              const SizedBox(height: 6),
-              Text(
-                'Selecciona si deseas que el video guarde la cámara limpia o con la letra y teleprompter en pantalla.',
-                style: AppTypography.sfProCaption(),
-              ),
-              const SizedBox(height: 16),
 
-              // Opción 1: Video Limpio
-              _buildRecordingModeTile(
-                title: 'Video Limpio (Solo Cámara)',
-                subtitle: 'Graba exclusivamente el video puro de la cámara en máxima resolución y calidad. Sin letras ni teleprompter.',
-                icon: Icons.videocam_rounded,
-                badge: 'Puro Video',
-                badgeColor: AppColors.tunerInTuneGreen,
-                isSelected: _recordingMode == RecordingMode.clean,
-                onTap: () {
-                  setState(() {
-                    _recordingMode = RecordingMode.clean;
-                  });
-                  Navigator.of(context).pop();
-                },
-              ),
-
-              const SizedBox(height: 12),
-
-              // Opción 2: Con Guion
-              _buildRecordingModeTile(
-                title: 'Con Guion (Cámara + Letra)',
-                subtitle: 'Graba el video mostrando el teleprompter con las letras de la canción y acordes sincronizados.',
-                icon: Icons.subtitles_rounded,
-                badge: 'Teleprompter',
-                badgeColor: AppColors.chordAmber,
-                isSelected: _recordingMode == RecordingMode.withScript,
-                onTap: () {
-                  setState(() {
-                    _recordingMode = RecordingMode.withScript;
-                  });
-                  Navigator.of(context).pop();
-                },
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildRecordingModeTile({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required String badge,
-    required Color badgeColor,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? badgeColor.withAlpha(25) : AppColors.cardDark,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isSelected ? badgeColor : AppColors.borderDark,
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.check_circle : icon,
-              color: isSelected ? badgeColor : AppColors.textSecondary,
-              size: 26,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            color: AppColors.textWhite,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: badgeColor.withAlpha(40),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          badge,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: badgeColor,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   // Cuadro de diálogo para seleccionar calidad y FPS
   void _openQualitySelectionModal() {
@@ -1201,6 +1064,28 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
+  void _openSongSearchDialog() {
+    SongSearchDialog.show(
+      context,
+      songsService: _savedSongsService,
+      onSongSelected: (importedSong) {
+        _applyNewSong(importedSong);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AppColors.surfaceDark,
+              content: Text(
+                '¡"${importedSong.title}" importada y cargada en el teleprompter!',
+                style: const TextStyle(color: AppColors.textWhite),
+              ),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      },
+    );
+  }
+
   Future<void> _openGuitarTunerScreen() async {
     // 1. Pausar los servicios de audio de grabación para liberar el micrófono en el hardware
     final wasAcousticTracking = _acousticService.isTracking;
@@ -1221,6 +1106,32 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
 
     // 3. Al volver, reanudar captura si la pantalla sigue montada
+    if (mounted) {
+      if (wasSherpaListening) {
+        await _sherpaService.startListening();
+      } else if (wasAcousticTracking) {
+        await _acousticService.startTracking();
+      }
+    }
+  }
+
+  Future<void> _openMetronomeScreen() async {
+    final wasAcousticTracking = _acousticService.isTracking;
+    final wasSherpaListening = _sherpaService.isListening;
+
+    if (wasAcousticTracking) {
+      await _acousticService.stopTracking();
+    }
+    if (wasSherpaListening) {
+      await _sherpaService.stopListening();
+    }
+
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MetronomeScreen()),
+    );
+
     if (mounted) {
       if (wasSherpaListening) {
         await _sherpaService.startListening();
@@ -1269,6 +1180,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 animation: _teleprompterController,
                 builder: (context, _) {
                   return FloatingTeleprompterCapsule(
+                    isCameraActive: _isCameraActive,
                     allLines: _teleprompterController.song.lines,
                     currentLineIndex: _teleprompterController.activeLineIndex,
                     currentLine: _teleprompterController.currentLine,
@@ -1371,41 +1283,32 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Cabecera ToroCorp Music
+                        // Cabecera ToroCorp Music (Sin imagen, con brillo dorado Pase de Oro de Brawl Stars)
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: Image.asset(
-                                  'assets/images/app_logo.jpeg',
-                                  width: 26,
-                                  height: 26,
-                                  fit: BoxFit.cover,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Center(
+                            child: BrawlGoldShimmer(
+                              child: Text(
+                                'ToroCorp Music',
+                                style: AppTypography.sfProHeadline(
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                ).copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'ToroCorp Music',
-                                  style: AppTypography.sfProHeadline(
-                                    fontSize: 16,
-                                    color: AppColors.chordAmber,
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                         const Divider(color: AppColors.borderDark, height: 12),
 
-                        // 1. Manos Libres: Cuenta Regresiva 3-2-1
+                        // 1. Manos Libres: Cuenta Regresiva 5 Segundos
                         _buildMenuItem(
                           icon: Icons.timer,
                           iconColor: AppColors.chordAmber,
-                          title: 'Cuenta Regresiva 3-2-1',
-                          subtitle: 'Iniciar grabación manos libres',
+                          title: 'Cuenta Regresiva 5 Segundos',
+                          subtitle: 'Iniciar grabación manos libres (5s)',
                           onTap: _triggerHandsFreeCountdown,
                         ),
 
@@ -1416,6 +1319,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           title: 'Cámara (Video)',
                           subtitle: _isCameraActive ? 'Activada' : 'Desactivada (Solo Karaoke)',
                           isActive: _isCameraActive,
+                          trailing: Switch.adaptive(
+                            value: _isCameraActive,
+                            activeTrackColor: AppColors.chordAmber,
+                            onChanged: (_) {
+                              _toggleCameraActive();
+                              _toggleMenu();
+                            },
+                          ),
                           onTap: () {
                             _toggleCameraActive();
                             _toggleMenu();
@@ -1433,7 +1344,18 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 4. Formato de Grabación (9:16, 16:9, etc.)
+                        // 4. Metrónomo Interactivo (40-240 BPM • Tap Tempo)
+                        _buildMenuItem(
+                          icon: Icons.speed,
+                          title: 'Metrónomo',
+                          subtitle: '40 - 240 BPM • Tap Tempo',
+                          onTap: () {
+                            _toggleMenu();
+                            _openMetronomeScreen();
+                          },
+                        ),
+
+                        // 5. Formato de Grabación (9:16, 16:9, etc.)
                         _buildMenuItem(
                           icon: Icons.aspect_ratio,
                           title: 'Formato de Grabación',
@@ -1489,21 +1411,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 10. Tipo de Grabación (Limpio vs Con Guion)
+                        // 9. Buscador de Canciones y Acordes (Catálogo Offline y En Línea)
                         _buildMenuItem(
-                          icon: _recordingMode == RecordingMode.clean
-                              ? Icons.videocam
-                              : Icons.subtitles,
-                          iconColor: _recordingMode == RecordingMode.clean
-                              ? AppColors.tunerInTuneGreen
-                              : AppColors.chordAmber,
-                          title: 'Tipo de Grabación',
-                          subtitle: _recordingMode == RecordingMode.clean
-                              ? 'Video Limpio (Solo cámara)'
-                              : 'Con Guion (Cámara + Letra)',
+                          icon: Icons.search,
+                          title: 'Buscador de Canciones y Acordes',
+                          subtitle: '20 éxitos offline y búsqueda en línea',
                           onTap: () {
                             _toggleMenu();
-                            _openRecordingModeModal();
+                            _openSongSearchDialog();
                           },
                         ),
 
@@ -1518,12 +1433,8 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 12. ToroCorp Music PRO
-                        _buildMenuItem(
-                          icon: Icons.star,
-                          iconColor: AppColors.chordAmber,
-                          title: 'ToroCorp Music PRO',
-                          subtitle: 'Sin anuncios • 4K 60FPS',
+                        // 12. ToroCorp Music PRO (Tarjeta destacada Pase de Oro de Brawl Stars)
+                        InkWell(
                           onTap: () {
                             _toggleMenu();
                             ProUpgradeDialog.show(
@@ -1535,6 +1446,77 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                               },
                             );
                           },
+                          borderRadius: BorderRadius.circular(14),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFFFFA000).withAlpha(35),
+                                  const Color(0xFFFFD700).withAlpha(15),
+                                  Colors.transparent,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              border: Border.all(
+                                color: const Color(0xFFFFD700).withAlpha(120),
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const BrawlGoldShimmer(
+                                  child: Icon(Icons.star, color: Colors.white, size: 24),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      BrawlGoldShimmer(
+                                        child: Text(
+                                          'ToroCorp Music PRO',
+                                          style: AppTypography.sfProLyricStyle(
+                                            fontSize: 14,
+                                            color: Colors.white,
+                                          ).copyWith(fontWeight: FontWeight.w800),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Sin anuncios • 4K 60FPS',
+                                        style: AppTypography.sfProCaption(
+                                          fontSize: 11,
+                                          color: AppColors.chordAmber,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                BrawlGoldShimmer(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.white, width: 1),
+                                    ),
+                                    child: const Text(
+                                      'PRO',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -1553,6 +1535,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     required String title,
     required String subtitle,
     bool isActive = false,
+    Widget? trailing,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -1582,7 +1565,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                 ],
               ),
             ),
-            if (isActive)
+            if (trailing != null)
+              trailing
+            else if (isActive)
               const Icon(Icons.check, size: 16, color: AppColors.tunerInTuneGreen),
           ],
         ),

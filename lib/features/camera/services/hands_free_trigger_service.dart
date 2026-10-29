@@ -10,13 +10,13 @@ class HandsFreeTriggerService {
 
   bool _isArmed = true;
   bool _isCountingDown = false;
-  int _countdownSeconds = 3;
+  int _countdownSeconds = 5;
   Timer? _countdownTimer;
 
   HandsFreeTriggerService({
     required this.onCountdownStart,
     this.onCountdownComplete,
-    this.countdownDuration = const Duration(seconds: 3),
+    this.countdownDuration = const Duration(seconds: 5),
   });
 
   bool get isArmed => _isArmed;
@@ -59,7 +59,7 @@ class HandsFreeTriggerService {
 
   void _startCountdown() {
     _isCountingDown = true;
-    _countdownSeconds = 3;
+    _countdownSeconds = 5;
     onCountdownStart();
 
     _countdownTimer?.cancel();
@@ -77,7 +77,7 @@ class HandsFreeTriggerService {
   void cancelCountdown() {
     _countdownTimer?.cancel();
     _isCountingDown = false;
-    _countdownSeconds = 3;
+    _countdownSeconds = 5;
   }
 
   void dispose() {

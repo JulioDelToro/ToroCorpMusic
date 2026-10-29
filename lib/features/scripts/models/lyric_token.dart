@@ -8,6 +8,9 @@ class LyricToken {
     this.chordUnderneath,
   });
 
+  /// Alias for chordUnderneath to support chord getter
+  String? get chord => chordUnderneath;
+
   LyricToken copyWith({
     String? word,
     String? chordUnderneath,

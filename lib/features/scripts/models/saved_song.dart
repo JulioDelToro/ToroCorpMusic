@@ -7,12 +7,14 @@ import '../services/chordpro_parser.dart';
 class SavedSong {
   final String id;
   final String title;
+  final String artist;
   final String content;
   final DateTime updatedAt;
 
   const SavedSong({
     required this.id,
     required this.title,
+    this.artist = 'Desconocido',
     required this.content,
     required this.updatedAt,
   });
@@ -21,6 +23,7 @@ class SavedSong {
     return {
       'id': id,
       'title': title,
+      'artist': artist,
       'content': content,
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -30,6 +33,7 @@ class SavedSong {
     return SavedSong(
       id: map['id'] as String? ?? DateTime.now().millisecondsSinceEpoch.toString(),
       title: map['title'] as String? ?? 'Sin título',
+      artist: map['artist'] as String? ?? 'Desconocido',
       content: map['content'] as String? ?? '',
       updatedAt: map['updatedAt'] != null
           ? DateTime.tryParse(map['updatedAt'] as String) ?? DateTime.now()
@@ -47,7 +51,7 @@ class SavedSong {
     final cleanTitle = title.trim().isEmpty ? 'Canción' : title.trim();
     if (content.contains('[') && content.contains(']')) {
       final parser = ChordProParser();
-      return parser.parse(content, title: cleanTitle);
+      return parser.parse(content, title: cleanTitle, artist: artist);
     }
 
     // Separación natural de líneas
@@ -78,6 +82,7 @@ class SavedSong {
 
     return SongScript(
       title: cleanTitle,
+      artist: artist,
       lines: parsedLines,
     );
   }

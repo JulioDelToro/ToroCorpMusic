@@ -94,3 +94,15 @@ class ChordProParser {
     return tokens;
   }
 }
+
+/// Static helper for parsing ChordPro text directly without manual instantiation
+class ChordproParser {
+  static SongScript parse(
+    String rawText, {
+    String title = 'Sin título',
+    String artist = 'Desconocido',
+  }) {
+    return ChordProParser().parse(rawText, title: title, artist: artist);
+  }
+}
+

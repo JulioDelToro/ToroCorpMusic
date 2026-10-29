@@ -4,6 +4,7 @@ import '../../../core/constants/app_typography.dart';
 import '../models/saved_song.dart';
 import '../models/song_script.dart';
 import '../services/saved_songs_service.dart';
+import 'song_search_dialog.dart';
 
 /// Diálogo modal para la sección "Letras" (Biblioteca de Repertorio y Creación de Guiones).
 class SavedSongsDialog extends StatefulWidget {
@@ -279,36 +280,91 @@ class _SavedSongsDialogState extends State<SavedSongsDialog>
 
     if (_savedSongs.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.library_music_outlined, color: Colors.white24, size: 54),
-            const SizedBox(height: 12),
-            const Text(
-              'No tienes canciones guardadas aún.',
-              style: TextStyle(color: Colors.white60, fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () => _tabController.animateTo(1),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.chordAmber,
-                foregroundColor: Colors.black,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.library_music_outlined, color: Colors.white24, size: 54),
+              const SizedBox(height: 12),
+              const Text(
+                'No tienes canciones guardadas aún.',
+                style: TextStyle(color: Colors.white60, fontSize: 14),
               ),
-              icon: const Icon(Icons.add),
-              label: const Text('Escribir o Pegar Letra'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                key: const Key('saved_songs_search_button_empty'),
+                onPressed: () {
+                  SongSearchDialog.show(
+                    context,
+                    songsService: widget.songsService,
+                    onSongSelected: _applyAndClose,
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.chordAmber,
+                  foregroundColor: Colors.black,
+                  minimumSize: const Size(240, 44),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.search, color: Colors.black),
+                label: const Text(
+                  'Buscar en Catálogo / En Línea',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => _tabController.animateTo(1),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.chordAmber,
+                  side: const BorderSide(color: AppColors.chordAmber),
+                  minimumSize: const Size(240, 44),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.add),
+                label: const Text('Escribir o Pegar Letra'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: _savedSongs.length,
-      itemBuilder: (context, index) {
-        final song = _savedSongs[index];
-        final preview = song.content.split('\n').take(2).join(' • ');
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: ElevatedButton.icon(
+            key: const Key('saved_songs_search_button'),
+            onPressed: () {
+              SongSearchDialog.show(
+                context,
+                songsService: widget.songsService,
+                onSongSelected: _applyAndClose,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.cardDark,
+              foregroundColor: AppColors.chordAmber,
+              side: const BorderSide(color: AppColors.chordAmber, width: 1.2),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              minimumSize: const Size.fromHeight(42),
+            ),
+            icon: const Icon(Icons.search, color: AppColors.chordAmber, size: 20),
+            label: const Text(
+              'Buscar en Línea / Catálogo de 20 Éxitos',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            itemCount: _savedSongs.length,
+            itemBuilder: (context, index) {
+              final song = _savedSongs[index];
+              final preview = song.content.split('\n').take(2).join(' • ');
 
         return Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -356,7 +412,10 @@ class _SavedSongsDialogState extends State<SavedSongsDialog>
           ),
         );
       },
-    );
+    ),
+  ),
+],
+);
   }
 
   Widget _buildWriteOrPasteTab() {

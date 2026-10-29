@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/widgets/brawl_gold_shimmer.dart';
 import '../services/ad_manager.dart';
 import '../services/subscription_service.dart';
 
@@ -47,11 +48,15 @@ class ProUpgradeDialog extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.star, color: AppColors.chordAmber, size: 40),
+            const BrawlGoldShimmer(
+              child: Icon(Icons.star, color: Colors.white, size: 40),
+            ),
             const SizedBox(height: 8),
-            Text(
-              'ToroCorp Music PRO',
-              style: AppTypography.sfProHeadline(fontSize: 22),
+            BrawlGoldShimmer(
+              child: Text(
+                'ToroCorp Music PRO',
+                style: AppTypography.sfProHeadline(fontSize: 22, color: Colors.white),
+              ),
             ),
             const SizedBox(height: 16),
 

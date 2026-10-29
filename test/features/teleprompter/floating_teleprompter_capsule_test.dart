@@ -201,4 +201,126 @@ void main() {
     // La tercera línea (Despiértame) debe estar visible debajo
     expect(find.text('Despiértame'), findsOneWidget);
   });
+
+  testWidgets('FloatingTeleprompterCapsule expands to Music Stand mode when camera is off with font size controls and chords', (tester) async {
+    final lines = [
+      const LyricLine(tokens: [LyricToken(word: 'De', chordUnderneath: 'G'), LyricToken(word: 'aquel')]),
+      const LyricLine(tokens: [LyricToken(word: 'amor', chordUnderneath: 'Bm'), LyricToken(word: 'de')]),
+      const LyricLine(tokens: [LyricToken(word: 'música', chordUnderneath: 'Em'), LyricToken(word: 'ligera')]),
+      const LyricLine(tokens: [LyricToken(word: 'Nada', chordUnderneath: 'C'), LyricToken(word: 'nos')]),
+    ];
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: FloatingTeleprompterCapsule(
+          allLines: lines,
+          currentLineIndex: 0,
+          currentWordIndex: 0,
+          isCameraActive: false,
+        ),
+      ),
+    ));
+
+    // Initially in compact pill mode: height is 108.0
+    final capsuleFinder = find.byType(FloatingTeleprompterCapsule);
+    final initialSize = tester.getSize(capsuleFinder);
+    expect(initialSize.height, equals(108.0));
+
+    // Expand icon button is visible when camera is off
+    final expandBtn = find.byIcon(Icons.unfold_more);
+    expect(expandBtn, findsOneWidget);
+
+    // Tap to expand into Music Stand mode
+    await tester.tap(expandBtn);
+    await tester.pumpAndSettle();
+
+    // Height expands significantly (> 200px)
+    final expandedSize = tester.getSize(capsuleFinder);
+    expect(expandedSize.height, greaterThan(200.0));
+
+    // Mode badge is displayed
+    expect(find.text('Modo Atril'), findsOneWidget);
+
+    // Font controls A- and A+ are present
+    expect(find.text('A-'), findsOneWidget);
+    expect(find.text('A+'), findsOneWidget);
+    expect(find.text('100%'), findsOneWidget);
+
+    // Tap A+ to increase font size
+    await tester.tap(find.text('A+'));
+    await tester.pump();
+    expect(find.text('115%'), findsOneWidget);
+
+    // Tap A- to decrease font size
+    await tester.tap(find.text('A-'));
+    await tester.pump();
+    expect(find.text('100%'), findsOneWidget);
+
+    // Chords and lyrics are visible in Music Stand mode
+    expect(find.text('G'), findsWidgets);
+    expect(find.text('Bm'), findsWidgets);
+    expect(find.text('Em'), findsWidgets);
+    expect(find.text('C'), findsWidgets);
+
+    // Collapse button is present in Music Stand mode
+    final collapseBtn = find.byIcon(Icons.close_fullscreen);
+    expect(collapseBtn, findsOneWidget);
+
+    // Tap collapse button to return to compact capsule
+    await tester.tap(collapseBtn);
+    await tester.pumpAndSettle();
+
+    final collapsedSize = tester.getSize(capsuleFinder);
+    expect(collapsedSize.height, equals(108.0));
+  });
+
+  testWidgets('FloatingTeleprompterCapsule auto-collapses when isCameraActive changes to true', (tester) async {
+    final lines = [
+      const LyricLine(tokens: [LyricToken(word: 'Línea', chordUnderneath: 'Am'), LyricToken(word: 'uno')]),
+      const LyricLine(tokens: [LyricToken(word: 'Línea', chordUnderneath: 'C'), LyricToken(word: 'dos')]),
+    ];
+
+    bool isCamActive = false;
+
+    await tester.pumpWidget(StatefulBuilder(
+      builder: (context, setState) {
+        return MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                ElevatedButton(
+                  onPressed: () => setState(() => isCamActive = true),
+                  child: const Text('Toggle Cam'),
+                ),
+                FloatingTeleprompterCapsule(
+                  allLines: lines,
+                  currentLineIndex: 0,
+                  currentWordIndex: 0,
+                  isCameraActive: isCamActive,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ));
+
+    // Expand island while camera is off
+    final expandBtn = find.byIcon(Icons.unfold_more);
+    await tester.tap(expandBtn);
+    await tester.pumpAndSettle();
+
+    final capsuleFinder = find.byType(FloatingTeleprompterCapsule);
+    expect(tester.getSize(capsuleFinder).height, greaterThan(200.0));
+
+    // Toggle camera ON
+    await tester.tap(find.text('Toggle Cam'));
+    await tester.pumpAndSettle();
+
+    // Capsule must smoothly auto-collapse back to compact 108.0
+    expect(tester.getSize(capsuleFinder).height, equals(108.0));
+
+    // When camera is on, the expand button is no longer available
+    expect(find.byIcon(Icons.unfold_more), findsNothing);
+  });
 }

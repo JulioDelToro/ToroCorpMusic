@@ -24,7 +24,7 @@ class CameraViewfinderWidget extends StatelessWidget {
     this.isRecording = false,
     this.isMirrorMode = false,
     this.aspectRatio = 9 / 16,
-    this.isCameraActive = true,
+    this.isCameraActive = false,
   });
 
   @override
@@ -55,7 +55,7 @@ class CameraViewfinderWidget extends StatelessWidget {
                         ),
                       )
                     : Container(
-                        color: const Color(0xFF070709),
+                        color: AppColors.pureBlackOled,
                         child: Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -98,7 +98,7 @@ class CameraViewfinderWidget extends StatelessWidget {
             ),
           ),
 
-          // 2. Animación de cuenta regresiva manos libres (3... 2... 1...)
+          // 2. Animación de cuenta regresiva manos libres (5... 4... 3... 2... 1...)
           if (triggerService.isCountingDown)
             Container(
               color: Colors.black.withAlpha(220),
