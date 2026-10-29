@@ -2,7 +2,9 @@ package com.torocorp.toro_music_teleprompter
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.media.MediaMetadataRetriever
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -35,9 +37,39 @@ private data class DynamicCue(val startTimeUs: Long, val bitmap: Bitmap)
 class MainActivity : FlutterActivity() {
     private val TAG = "ToroCorpMusic"
     private val CHANNEL = "com.torocorp.toro_music_teleprompter/video_compositor"
+    private val METRONOME_CHANNEL = "com.torocorp.toro_music_teleprompter/metronome"
+
+    private var toneGeneratorHigh: ToneGenerator? = null
+    private var toneGeneratorLow: ToneGenerator? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        try {
+            toneGeneratorHigh = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+            toneGeneratorLow = ToneGenerator(AudioManager.STREAM_MUSIC, 85)
+        } catch (e: Throwable) {
+            Log.w(TAG, "No se pudo inicializar ToneGenerator: ${e.message}")
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METRONOME_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "playBeat" -> {
+                    val isDownbeat = call.argument<Boolean>("isDownbeat") ?: false
+                    try {
+                        if (isDownbeat) {
+                            toneGeneratorHigh?.startTone(ToneGenerator.TONE_PROP_BEEP2, 45)
+                        } else {
+                            toneGeneratorLow?.startTone(ToneGenerator.TONE_PROP_BEEP, 30)
+                        }
+                        result.success(true)
+                    } catch (e: Throwable) {
+                        result.error("TONE_ERROR", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -251,5 +283,15 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        try {
+            toneGeneratorHigh?.release()
+            toneGeneratorLow?.release()
+        } catch (_: Throwable) {}
+        toneGeneratorHigh = null
+        toneGeneratorLow = null
+        super.onDestroy()
     }
 }

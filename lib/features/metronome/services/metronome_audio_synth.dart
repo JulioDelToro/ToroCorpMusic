@@ -1,5 +1,22 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
+
+/// Native audio player for Metronome clicks via Android ToneGenerator / MethodChannel.
+class MetronomeAudioNative {
+  static const MethodChannel _channel =
+      MethodChannel('com.torocorp.toro_music_teleprompter/metronome');
+
+  /// Plays a crystal-clear acoustic "bip" sound directly through STREAM_MUSIC.
+  static Future<void> playBeat({required bool isDownbeat}) async {
+    try {
+      await _channel.invokeMethod('playBeat', {'isDownbeat': isDownbeat});
+    } catch (_) {
+      // Fallback on non-Android or test runner
+      SystemSound.play(SystemSoundType.click);
+    }
+  }
+}
 
 /// Procedural PCM WAV audio synthesizer for ToroCorp Music Metronome.
 ///

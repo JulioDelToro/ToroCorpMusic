@@ -17,11 +17,13 @@ import '../../camera/widgets/camera_viewfinder_widget.dart';
 import '../../monetization/services/ad_manager.dart';
 import '../../monetization/services/subscription_service.dart';
 import '../../monetization/widgets/pro_upgrade_dialog.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+
 import '../../recording/models/recording_mode.dart';
 import '../../recording/services/video_recording_compositor.dart';
 import '../../scripts/models/song_script.dart';
 import '../../scripts/presentation/saved_songs_dialog.dart';
-import '../../scripts/presentation/song_search_dialog.dart';
 import '../../scripts/services/saved_songs_service.dart';
 import '../../teleprompter/controllers/teleprompter_controller.dart';
 import '../../teleprompter/widgets/floating_teleprompter_capsule.dart';
@@ -144,6 +146,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   final bool _isMirrorMode = false;
   bool _hasSinglePass4K = false;
   final RecordingMode _recordingMode = RecordingMode.clean;
+
+  // Grabadora de audio dedicada para Modo Solo Karaoke / Audio
+  final AudioRecorder _audioRecorder = AudioRecorder();
 
   // Registro dinámico de cues para incrustación sincronizada en el video
   final List<({
@@ -470,6 +475,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     _vocalMatcher.dispose();
     _teleprompterController.removeListener(_onTeleprompterUpdated);
     _teleprompterController.dispose();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
@@ -533,6 +539,30 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       } catch (e) {
         debugPrint('ToroCorp Music: Info iniciar grabación video: $e');
       }
+    } else if (!_isCameraActive) {
+      // Modo Solo Karaoke / Audio: grabar como grabadora de audio en máxima calidad (320 kbps 48kHz estéreo)
+      try {
+        final hasPerm = await _audioRecorder.hasPermission();
+        if (hasPerm) {
+          final docsDir = await getApplicationDocumentsDirectory();
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final audioFileName = 'ToroMusic_Audio_$timestamp.m4a';
+          final outputPath = '${docsDir.path}/$audioFileName';
+
+          await _audioRecorder.start(
+            const RecordConfig(
+              encoder: AudioEncoder.aacLc,
+              sampleRate: 48000,
+              bitRate: 320000, // 320 kbps (estudio profesional)
+              numChannels: 2, // Stereo
+            ),
+            path: outputPath,
+          );
+          debugPrint('ToroCorp Music: Grabación de audio puro iniciada en: $outputPath');
+        }
+      } catch (e) {
+        debugPrint('ToroCorp Music: Error iniciando grabadora de audio: $e');
+      }
     }
 
     // Asegurar que el motor de seguimiento vocal esté activo y sincronizado
@@ -561,6 +591,45 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         videoFile = await _cameraController?.stopVideoRecording();
       } catch (e) {
         debugPrint('Error al detener grabación: $e');
+      }
+    } else if (!_isCameraActive) {
+      // Modo Solo Karaoke / Audio: detener grabadora de audio y notificar
+      try {
+        if (await _audioRecorder.isRecording()) {
+          final audioPath = await _audioRecorder.stop();
+          if (audioPath != null && File(audioPath).existsSync()) {
+            final fileName = audioPath.split(Platform.pathSeparator).last;
+            debugPrint('ToroCorp Music: Grabación de audio finalizada: $audioPath');
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.mic, color: AppColors.chordAmber, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '🎙️ Audio grabado en máxima calidad (320 kbps):\n$fileName',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFF1B2A1B),
+                  duration: const Duration(seconds: 4),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Color(0xFF28A745), width: 1.2),
+                  ),
+                ),
+              );
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('ToroCorp Music: Error al detener grabadora de audio: $e');
       }
     }
 
@@ -1064,28 +1133,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
     );
   }
 
-  void _openSongSearchDialog() {
-    SongSearchDialog.show(
-      context,
-      songsService: _savedSongsService,
-      onSongSelected: (importedSong) {
-        _applyNewSong(importedSong);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: AppColors.surfaceDark,
-              content: Text(
-                '¡"${importedSong.title}" importada y cargada en el teleprompter!',
-                style: const TextStyle(color: AppColors.textWhite),
-              ),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      },
-    );
-  }
-
   Future<void> _openGuitarTunerScreen() async {
     // 1. Pausar los servicios de audio de grabación para liberar el micrófono en el hardware
     final wasAcousticTracking = _acousticService.isTracking;
@@ -1411,18 +1458,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           },
                         ),
 
-                        // 9. Buscador de Canciones y Acordes (Catálogo Offline y En Línea)
-                        _buildMenuItem(
-                          icon: Icons.search,
-                          title: 'Buscador de Canciones y Acordes',
-                          subtitle: '20 éxitos offline y búsqueda en línea',
-                          onTap: () {
-                            _toggleMenu();
-                            _openSongSearchDialog();
-                          },
-                        ),
-
-                        // 11. Tutoriales y Guía
+                        // 9. Tutoriales y Guía
                         _buildMenuItem(
                           icon: Icons.help_outline,
                           title: 'Tutoriales y Guía',

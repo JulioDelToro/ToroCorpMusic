@@ -7,7 +7,7 @@ import 'package:toro_music_teleprompter/features/tutorials/widgets/onboarding_to
 void main() {
   group('TutorialTopic Adversarial Invariant Checks', () {
     test('all enum instances meet strict content and formatting contracts', () {
-      expect(TutorialTopic.values.length, greaterThanOrEqualTo(10));
+      expect(TutorialTopic.values.length, greaterThanOrEqualTo(9));
 
       final titlesSeen = <String>{};
 
@@ -79,16 +79,6 @@ void main() {
       expect(fullText, contains('+/- 1 BPM'));
       expect(fullText, contains('2/4, 3/4, 4/4, 6/8'));
       expect(fullText, contains('tiempo 1'));
-    });
-
-    test('lyricsAndChordsSearch strictly specifies offline hits, online search, 1-tap import (R5)', () {
-      final search = TutorialTopic.lyricsAndChordsSearch;
-      final fullText = '${search.title} ${search.summary} ${search.instructions.join(' ')}';
-
-      expect(fullText, contains('offline'));
-      expect(fullText, contains('en línea'));
-      expect(fullText, contains('acordes alineados'));
-      expect(fullText, contains('Importar'));
     });
 
     test('tuner strictly specifies 6- and 12-string guitars with ±3.5¢ accuracy (R6)', () {
@@ -173,15 +163,15 @@ void main() {
       await tester.tap(find.text('Launch Tour'));
       await tester.pumpAndSettle();
 
-      // Step 1 to 6 use 'Siguiente', Step 7 uses '¡Empezar a grabar!'
-      for (int step = 1; step <= 6; step++) {
-        expect(find.text('$step de 7'), findsOneWidget);
+      // Step 1 to 5 use 'Siguiente', Step 6 uses '¡Empezar a grabar!'
+      for (int step = 1; step <= 5; step++) {
+        expect(find.text('$step de 6'), findsOneWidget);
         await tester.tap(find.text('Siguiente'));
         await tester.pumpAndSettle();
       }
 
-      // Step 7
-      expect(find.text('7 de 7'), findsOneWidget);
+      // Step 6
+      expect(find.text('6 de 6'), findsOneWidget);
       expect(find.text('¡Empezar a grabar!'), findsOneWidget);
       await tester.tap(find.text('¡Empezar a grabar!'));
       await tester.pumpAndSettle();
@@ -250,8 +240,8 @@ void main() {
       await tester.tap(find.text('Launch Tour'));
       await tester.pumpAndSettle();
 
-      for (int step = 1; step <= 6; step++) {
-        expect(find.text('$step de 7'), findsOneWidget);
+      for (int step = 1; step <= 5; step++) {
+        expect(find.text('$step de 6'), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'Overflow exception at step $step on 320x480');
         final nextBtn = find.text('Siguiente');
         await tester.ensureVisible(nextBtn);
@@ -260,10 +250,10 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      expect(find.text('7 de 7'), findsOneWidget);
+      expect(find.text('6 de 6'), findsOneWidget);
       final finishBtn = find.text('¡Empezar a grabar!');
       expect(finishBtn, findsOneWidget);
-      expect(tester.takeException(), isNull, reason: 'Overflow exception at step 7 on 320x480');
+      expect(tester.takeException(), isNull, reason: 'Overflow exception at step 6 on 320x480');
 
       await tester.ensureVisible(finishBtn);
       await tester.pumpAndSettle();

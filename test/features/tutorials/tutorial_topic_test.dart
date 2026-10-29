@@ -12,7 +12,6 @@ void main() {
         TutorialTopic.palmGesture,
         TutorialTopic.voiceCommand,
         TutorialTopic.metronome,
-        TutorialTopic.lyricsAndChordsSearch,
         TutorialTopic.tuner,
         TutorialTopic.vocalTracking,
         TutorialTopic.chordDictionary,
@@ -73,15 +72,6 @@ void main() {
       expect(allInstructions, contains('+/- 1 BPM'));
     });
 
-    test('lyricsAndChordsSearch specifies online and offline catalog and 1-tap import', () {
-      final topic = TutorialTopic.lyricsAndChordsSearch;
-      expect(topic.title, contains('Buscador de Letras'));
-      final allInstructions = topic.instructions.join(' ');
-      expect(allInstructions, contains('offline'));
-      expect(allInstructions, contains('Importar'));
-      expect(allInstructions, contains('acordes'));
-    });
-
     test('tuner specifies 6- and 12-string guitars, detection and +/-3.5 cent accuracy', () {
       final topic = TutorialTopic.tuner;
       expect(topic.title, contains('6 y 12 Cuerdas'));
@@ -129,25 +119,25 @@ void main() {
 
       // First step is cameraAndDynamicIsland
       expect(find.text(TutorialTopic.cameraAndDynamicIsland.title), findsOneWidget);
-      expect(find.text('1 de 7'), findsOneWidget);
+      expect(find.text('1 de 6'), findsOneWidget);
 
       // Advance to next: palmGesture
       await tester.tap(find.text('Siguiente'));
       await tester.pumpAndSettle();
       expect(find.text(TutorialTopic.palmGesture.title), findsOneWidget);
-      expect(find.text('2 de 7'), findsOneWidget);
+      expect(find.text('2 de 6'), findsOneWidget);
 
       // Advance to next: metronome
       await tester.tap(find.text('Siguiente'));
       await tester.pumpAndSettle();
       expect(find.text(TutorialTopic.metronome.title), findsOneWidget);
-      expect(find.text('3 de 7'), findsOneWidget);
+      expect(find.text('3 de 6'), findsOneWidget);
 
-      // Advance to next: lyricsAndChordsSearch
+      // Advance to next: tuner
       await tester.tap(find.text('Siguiente'));
       await tester.pumpAndSettle();
-      expect(find.text(TutorialTopic.lyricsAndChordsSearch.title), findsOneWidget);
-      expect(find.text('4 de 7'), findsOneWidget);
+      expect(find.text(TutorialTopic.tuner.title), findsOneWidget);
+      expect(find.text('4 de 6'), findsOneWidget);
     });
   });
 }

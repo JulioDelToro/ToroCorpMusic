@@ -26,7 +26,6 @@ class _OnboardingTourDialogState extends State<OnboardingTourDialog> {
     TutorialTopic.cameraAndDynamicIsland,
     TutorialTopic.palmGesture,
     TutorialTopic.metronome,
-    TutorialTopic.lyricsAndChordsSearch,
     TutorialTopic.tuner,
     TutorialTopic.vocalTracking,
     TutorialTopic.chordDictionary,

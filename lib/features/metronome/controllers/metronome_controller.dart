@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import '../services/metronome_audio_synth.dart';
 
 /// Supported standard musical time signatures.
@@ -226,11 +225,11 @@ class MetronomeController extends ChangeNotifier {
 
     final wavBytes = _synth.getBeatSound(isDownbeat: isAccent);
 
+    // Reproduce el bip acústico nativo (ToneGenerator STREAM_MUSIC)
+    MetronomeAudioNative.playBeat(isDownbeat: isAccent);
+
     if (onPlayClick != null) {
       onPlayClick!(beatInBar, isAccent, wavBytes);
-    } else {
-      // Acoustic haptic/system click fallback for mobile device speakers
-      SystemSound.play(SystemSoundType.click);
     }
 
     notifyListeners();

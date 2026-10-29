@@ -45,17 +45,6 @@ enum TutorialTopic {
       'Elige compases estándar (2/4, 3/4, 4/4, 6/8) con acentuación diferenciada en el tiempo 1 y destello visual sincrónico.',
     ],
   ),
-  lyricsAndChordsSearch(
-    title: 'Buscador de Letras y Acordes',
-    icon: Icons.travel_explore,
-    summary: 'Encuentra canciones en línea o explora la biblioteca offline y móntalas con 1 toque.',
-    instructions: [
-      'Abre "Letras y Repertorio" desde el menú lateral o toca el centro de la cápsula del teleprompter.',
-      'Escribe el nombre de la canción o del artista en el buscador para consultar fuentes públicas abiertas en línea.',
-      'Disfruta de la biblioteca precargada offline con éxitos populares para tocar de inmediato sin conexión a internet.',
-      'Visualiza los acordes alineados sobre las sílabas exactas y presiona "Importar" para guardarla y montarla al instante.',
-    ],
-  ),
   tuner(
     title: 'Afinador de Guitarra (6 y 12 Cuerdas)',
     icon: Icons.tune,

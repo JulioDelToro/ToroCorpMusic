@@ -223,8 +223,8 @@ void main() {
           reason: 'OnboardingTourDialog must not have RenderFlex overflow on 360px viewport width',
         );
 
-        // Advance through all steps to step 7 (isLast == true)
-        for (int i = 0; i < 6; i++) {
+        // Advance through all steps to step 6 (isLast == true)
+        for (int i = 0; i < 5; i++) {
           final nextBtn = find.text('Siguiente');
           expect(nextBtn, findsOneWidget);
           await tester.tap(nextBtn);
@@ -284,7 +284,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Advance through all steps
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 5; i++) {
           final nextBtn = find.text('Siguiente');
           expect(nextBtn, findsOneWidget);
           await tester.ensureVisible(nextBtn);

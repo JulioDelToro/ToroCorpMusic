@@ -305,13 +305,13 @@ void main() {
         reason: 'R6: Tutorial topics must include interactive Metronome guide',
       );
 
-      // Check R5: Lyrics and chords search
-      final hasSearchTopic = topicNames.contains('lyricsAndChordsSearch') ||
-          topicTitles.any((t) => t.contains('buscador') || t.contains('letras'));
+      // Check R5: Chord dictionary and repertoire
+      final hasChordTopic = topicNames.contains('chordDictionary') ||
+          topicTitles.any((t) => t.contains('acordes') || t.contains('letras'));
       expect(
-        hasSearchTopic,
+        hasChordTopic,
         isTrue,
-        reason: 'R6: Tutorial topics must include automated lyrics and chords search guide',
+        reason: 'R6: Tutorial topics must include chord dictionary guide',
       );
 
       // Check R6: 6 and 12-string guitar tuner

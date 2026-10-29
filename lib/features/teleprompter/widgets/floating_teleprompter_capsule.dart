@@ -202,13 +202,15 @@ class _FloatingTeleprompterCapsuleState
     final screenWidth = screenSize.width;
     final screenHeight = screenSize.height;
 
-    final effectiveWidth = _isExpanded
+    final bool isStandExpanded = _isExpanded && !widget.isCameraActive;
+
+    final effectiveWidth = isStandExpanded
         ? math.max(320.0, screenWidth - 24.0)
-        : math.min(widget.width, screenWidth - 16.0);
-    final effectiveHeight = _isExpanded
+        : math.min(screenWidth - 16.0, 395.0);
+    final effectiveHeight = isStandExpanded
         ? math.min(screenHeight * 0.72, 560.0)
         : widget.height;
-    final effectiveRadius = _isExpanded ? 24.0 : 38.0;
+    final effectiveRadius = isStandExpanded ? 24.0 : 38.0;
 
     final effectiveLines = _getEffectiveLines();
     final int effectiveLineIndex =
@@ -223,14 +225,14 @@ class _FloatingTeleprompterCapsuleState
       width: effectiveWidth,
       height: effectiveHeight,
       padding: EdgeInsets.symmetric(
-        horizontal: _isExpanded ? 16 : 14,
-        vertical: _isExpanded ? 12 : 8,
+        horizontal: isStandExpanded ? 16 : 14,
+        vertical: isStandExpanded ? 12 : 8,
       ),
       decoration: BoxDecoration(
         color: Colors.black.withAlpha(238), // Negro puro OLED
         borderRadius: BorderRadius.circular(effectiveRadius),
         border: Border.all(
-          color: _isExpanded
+          color: isStandExpanded
               ? AppColors.chordAmber.withAlpha(90)
               : Colors.white.withAlpha(35),
           width: 1.0,
@@ -243,7 +245,7 @@ class _FloatingTeleprompterCapsuleState
           ),
         ],
       ),
-      child: _isExpanded
+      child: isStandExpanded
           ? _buildMusicStandContent(
               effectiveLines: effectiveLines,
               effectiveLineIndex: effectiveLineIndex,
@@ -386,14 +388,14 @@ class _FloatingTeleprompterCapsuleState
           ],
         ),
 
-        const SizedBox(width: 10),
+        const SizedBox(width: 6),
         const VerticalDivider(
           color: Colors.white24,
           width: 1,
           indent: 6,
           endIndent: 6,
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 6),
 
         // ── 2. Área Central de Karaoke Estable con 3 Líneas y Acordes ────────
         Expanded(
@@ -479,28 +481,28 @@ class _FloatingTeleprompterCapsuleState
 
         // Botón de expansión a Modo Atril (solo disponible cuando la cámara está apagada)
         if (!widget.isCameraActive) ...[
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
           IconButton(
             icon: const Icon(
               Icons.unfold_more,
               color: AppColors.chordAmber,
-              size: 20,
+              size: 18,
             ),
             tooltip: 'Modo Atril (Pantalla Completa)',
             onPressed: _toggleExpanded,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
           ),
         ],
 
         // ── 3. Botón de Menú Hamburguesa (☰ <-> ✕) Integrado en la Cápsula ──
         if (widget.onMenuTap != null) ...[
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           GestureDetector(
             onTap: widget.onMenuTap,
             child: Container(
-              width: 38,
-              height: 38,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withAlpha(20),
@@ -515,12 +517,12 @@ class _FloatingTeleprompterCapsuleState
                         icon: AnimatedIcons.menu_close,
                         progress: widget.menuAnimationProgress!,
                         color: AppColors.textWhite,
-                        size: 20,
+                        size: 18,
                       )
                     : const Icon(
                         Icons.menu,
                         color: AppColors.textWhite,
-                        size: 20,
+                        size: 18,
                       ),
               ),
             ),
@@ -535,120 +537,208 @@ class _FloatingTeleprompterCapsuleState
     required int effectiveLineIndex,
     required bool isEmpty,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // ── Header Bar del Atril ──
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            // Left group: Indicador de Voz / Reiniciar y REC
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _handleVozTap,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: _isConfirmingReset ? 76 : 58,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: _isConfirmingReset
-                          ? AppColors.chordAmber.withAlpha(50)
-                          : (widget.isSinging
-                              ? widget.highlightColor.withAlpha(45)
-                              : Colors.white.withAlpha(14)),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: _isConfirmingReset
-                            ? AppColors.chordAmber
-                            : (widget.isSinging
-                                ? widget.highlightColor
-                                : Colors.white.withAlpha(35)),
-                        width: (_isConfirmingReset || widget.isSinging) ? 1.5 : 0.8,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _isConfirmingReset
-                                  ? Icons.replay_rounded
-                                  : (widget.isSinging ? Icons.mic : Icons.mic_none),
-                              color: _isConfirmingReset
-                                  ? AppColors.chordAmber
-                                  : (widget.isSinging
-                                      ? widget.highlightColor
-                                      : Colors.white70),
-                              size: _isConfirmingReset ? 14 : 13,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              _isConfirmingReset ? 'Reiniciar' : 'Voz',
-                              style: TextStyle(
-                                color: _isConfirmingReset
-                                    ? AppColors.chordAmber
-                                    : (widget.isSinging
-                                        ? widget.highlightColor
-                                        : Colors.white70),
-                                fontSize: _isConfirmingReset ? 10.5 : 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool showExtraDetails = constraints.maxHeight > 180.0;
 
-                // Indicador REC
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Header Bar del Atril ──
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Left group: Indicador de Voz / Reiniciar y REC
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      width: 7.5,
-                      height: 7.5,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: widget.isRecording ? AppColors.recordRed : Colors.white38,
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _handleVozTap,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: _isConfirmingReset ? 76 : 58,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: _isConfirmingReset
+                              ? AppColors.chordAmber.withAlpha(50)
+                              : (widget.isSinging
+                                  ? widget.highlightColor.withAlpha(45)
+                                  : Colors.white.withAlpha(14)),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _isConfirmingReset
+                                ? AppColors.chordAmber
+                                : (widget.isSinging
+                                    ? widget.highlightColor
+                                    : Colors.white.withAlpha(35)),
+                            width: (_isConfirmingReset || widget.isSinging) ? 1.5 : 0.8,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _isConfirmingReset
+                                      ? Icons.replay_rounded
+                                      : (widget.isSinging ? Icons.mic : Icons.mic_none),
+                                  color: _isConfirmingReset
+                                      ? AppColors.chordAmber
+                                      : (widget.isSinging
+                                          ? widget.highlightColor
+                                          : Colors.white70),
+                                  size: _isConfirmingReset ? 14 : 13,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  _isConfirmingReset ? 'Reiniciar' : 'Voz',
+                                  style: TextStyle(
+                                    color: _isConfirmingReset
+                                        ? AppColors.chordAmber
+                                        : (widget.isSinging
+                                            ? widget.highlightColor
+                                            : Colors.white70),
+                                    fontSize: _isConfirmingReset ? 10.5 : 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      widget.isRecording ? _formatTimer(widget.recordingSeconds) : 'REC',
-                      style: TextStyle(
-                        color: widget.isRecording ? AppColors.recordRed : Colors.white60,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'monospace',
-                      ),
+                    const SizedBox(width: 8),
+
+                    // Indicador REC
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7.5,
+                          height: 7.5,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: widget.isRecording ? AppColors.recordRed : Colors.white38,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          widget.isRecording ? _formatTimer(widget.recordingSeconds) : 'REC',
+                          style: TextStyle(
+                            color: widget.isRecording ? AppColors.recordRed : Colors.white60,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
                     ),
                   ],
+                ),
+
+                // Right group: Controles A-/A+, Botón Colapso, Menú
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Controles de tamaño de letra A- / A+
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white24, width: 0.8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Text('A-', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
+                                tooltip: 'Reducir tamaño',
+                                onPressed: _decreaseFontSize,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                child: Text(
+                                  '${(_fontScale * 100).round()}%',
+                                  style: const TextStyle(color: AppColors.chordAmber, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Text('A+', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                                tooltip: 'Aumentar tamaño',
+                                onPressed: _increaseFontSize,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
+                        // Botón de Colapso a cápsula
+                        IconButton(
+                          icon: const Icon(Icons.close_fullscreen, color: Colors.white70, size: 20),
+                          tooltip: 'Contraer a cápsula',
+                          onPressed: _toggleExpanded,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        ),
+
+                        // Botón Menú
+                        if (widget.onMenuTap != null) ...[
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: widget.onMenuTap,
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withAlpha(20),
+                                border: Border.all(color: Colors.white.withAlpha(45), width: 1.0),
+                              ),
+                              child: Center(
+                                child: widget.menuAnimationProgress != null
+                                    ? AnimatedIcon(
+                                        icon: AnimatedIcons.menu_close,
+                                        progress: widget.menuAnimationProgress!,
+                                        color: AppColors.textWhite,
+                                        size: 16,
+                                      )
+                                    : const Icon(Icons.menu, color: AppColors.textWhite, size: 16),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
 
-            // Right group: Badge Modo Atril, Controles A-/A+, Botón Colapso, Menú
-            Flexible(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const NeverScrollableScrollPhysics(),
-                reverse: true,
+            if (showExtraDetails)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 2),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Badge Modo Atril
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2.5),
                       decoration: BoxDecoration(
-                        color: AppColors.chordAmber.withAlpha(30),
+                        color: AppColors.chordAmber.withAlpha(25),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: AppColors.chordAmber.withAlpha(80), width: 0.8),
                       ),
@@ -661,141 +751,77 @@ class _FloatingTeleprompterCapsuleState
                             'Modo Atril',
                             style: TextStyle(
                               color: AppColors.chordAmber,
-                              fontSize: 11,
+                              fontSize: 10.5,
                               fontWeight: FontWeight.bold,
+                              letterSpacing: 0.3,
                             ),
                           ),
                         ],
                       ),
                     ),
-
-                    const SizedBox(width: 8),
-
-                    // Controles de tamaño de letra A- / A+
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Text('A-', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
-                          tooltip: 'Reducir tamaño',
-                          onPressed: _decreaseFontSize,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
-                        ),
-                        Text(
-                          '${(_fontScale * 100).round()}%',
-                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 10, fontWeight: FontWeight.w600),
-                        ),
-                        IconButton(
-                          icon: const Text('A+', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                          tooltip: 'Aumentar tamaño',
-                          onPressed: _increaseFontSize,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 26, minHeight: 28),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(width: 4),
-
-                    // Botón de Colapso a cápsula
-                    IconButton(
-                      icon: const Icon(Icons.close_fullscreen, color: Colors.white70, size: 18),
-                      tooltip: 'Contraer a cápsula',
-                      onPressed: _toggleExpanded,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-                    ),
-
-                    // Botón Menú
-                    if (widget.onMenuTap != null) ...[
-                      const SizedBox(width: 4),
-                      GestureDetector(
-                        onTap: widget.onMenuTap,
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withAlpha(20),
-                            border: Border.all(color: Colors.white.withAlpha(45), width: 1.0),
-                          ),
-                          child: Center(
-                            child: widget.menuAnimationProgress != null
-                                ? AnimatedIcon(
-                                    icon: AnimatedIcons.menu_close,
-                                    progress: widget.menuAnimationProgress!,
-                                    color: AppColors.textWhite,
-                                    size: 16,
-                                  )
-                                : const Icon(Icons.menu, color: AppColors.textWhite, size: 16),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
+
+            if (showExtraDetails)
+              const Divider(color: Colors.white24, height: 16, thickness: 0.8),
+
+            // ── Cuerpo de Letras y Acordes con Scroll Vertical y 6-10 Líneas ──
+            Expanded(
+              child: isEmpty
+                  ? GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: widget.onPlaceholderTap ?? widget.onMenuTap,
+                      child: Container(
+                        alignment: Alignment.center,
+                        child: const Text(
+                          'Toca aquí para escribir o pegar la letra de tu canción...',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white60,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: effectiveLines.length,
+                      itemBuilder: (context, idx) {
+                        final line = effectiveLines[idx];
+                        final isCurrentLine = idx == effectiveLineIndex;
+                        final isPastLine = idx < effectiveLineIndex;
+
+                        return Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: isCurrentLine
+                              ? BoxDecoration(
+                                  color: widget.highlightColor.withAlpha(25),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: widget.highlightColor.withAlpha(120),
+                                    width: 1.0,
+                                  ),
+                                )
+                              : null,
+                          child: _buildMusicStandLineItem(
+                            line: line,
+                            lineIndex: idx,
+                            isCurrentLine: isCurrentLine,
+                            isPastLine: isPastLine,
+                            activeWordIndex: isCurrentLine ? widget.currentWordIndex : -1,
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
-        ),
-
-        const Divider(color: Colors.white24, height: 16, thickness: 0.8),
-
-        // ── Cuerpo de Letras y Acordes con Scroll Vertical y 6-10 Líneas ──
-        Expanded(
-          child: isEmpty
-              ? GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: widget.onPlaceholderTap ?? widget.onMenuTap,
-                  child: Container(
-                    alignment: Alignment.center,
-                    child: const Text(
-                      'Toca aquí para escribir o pegar la letra de tu canción...',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white60,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  controller: _scrollController,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: effectiveLines.length,
-                  itemBuilder: (context, idx) {
-                    final line = effectiveLines[idx];
-                    final isCurrentLine = idx == effectiveLineIndex;
-                    final isPastLine = idx < effectiveLineIndex;
-
-                    return Container(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: isCurrentLine
-                          ? BoxDecoration(
-                              color: widget.highlightColor.withAlpha(25),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: widget.highlightColor.withAlpha(120),
-                                width: 1.0,
-                              ),
-                            )
-                          : null,
-                      child: _buildMusicStandLineItem(
-                        line: line,
-                        lineIndex: idx,
-                        isCurrentLine: isCurrentLine,
-                        isPastLine: isPastLine,
-                        activeWordIndex: isCurrentLine ? widget.currentWordIndex : -1,
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -836,13 +862,17 @@ class _FloatingTeleprompterCapsuleState
                 size: (16 * _fontScale).clamp(12.0, 24.0),
               ),
               const SizedBox(width: 6),
-              Text(
-                line.instrumentalLabel ?? '🎸 REQUINTO / SOLO',
-                style: TextStyle(
-                  color: isCurrentLine ? AppColors.chordAmber : Colors.white70,
-                  fontSize: (13.0 * _fontScale).clamp(10.0, 22.0),
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.4,
+              Flexible(
+                child: Text(
+                  line.instrumentalLabel ?? '🎸 REQUINTO / SOLO',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isCurrentLine ? AppColors.chordAmber : Colors.white70,
+                    fontSize: (13.0 * _fontScale).clamp(10.0, 22.0),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.4,
+                  ),
                 ),
               ),
             ],
@@ -980,21 +1010,25 @@ class _FloatingTeleprompterCapsuleState
               Icon(
                 Icons.music_note,
                 color: isCurrentLine ? AppColors.chordAmber : Colors.white60,
-                size: 15,
+                size: 13,
               ),
-              const SizedBox(width: 5),
-              Text(
-                line.instrumentalLabel ?? '🎸 REQUINTO / SOLO',
-                style: TextStyle(
-                  color: isCurrentLine ? AppColors.chordAmber : Colors.white70,
-                  fontSize: 11.0,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.4,
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  line.instrumentalLabel ?? '🎸 REQUINTO / SOLO',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isCurrentLine ? AppColors.chordAmber : Colors.white70,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3,
+                  ),
                 ),
               ),
               if (isCurrentLine) ...[
-                const SizedBox(width: 5),
-                const Icon(Icons.touch_app, color: Colors.white60, size: 13),
+                const SizedBox(width: 4),
+                const Icon(Icons.touch_app, color: Colors.white60, size: 12),
               ],
             ],
           ),
