@@ -46,6 +46,18 @@ class MainActivity : FlutterActivity() {
     // Servicio de composición en tiempo real (cámara + overlay karaoke → MP4 directo)
     private val realtimeCompositor = RealtimeCompositorService()
 
+    // Función auxiliar para decodificar Bitmap asegurando formato ARGB_8888 (requerido por OpenGL y Media3)
+    private fun decodeArgb8888Bitmap(path: String): Bitmap? {
+        val file = File(path)
+        if (!file.exists() || file.length() == 0L) return null
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inScaled = false
+            inMutable = false
+        }
+        return BitmapFactory.decodeFile(path, options)
+    }
+
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -113,6 +125,7 @@ class MainActivity : FlutterActivity() {
                     }
 
                     val loadedCues = mutableListOf<DynamicCue>()
+                    val dummyBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
                     val cleanUpBitmaps = {
                         for (cue in loadedCues) {
                             try {
@@ -122,35 +135,37 @@ class MainActivity : FlutterActivity() {
                             } catch (_: Throwable) {}
                         }
                         loadedCues.clear()
+                        try {
+                            if (!dummyBitmap.isRecycled) {
+                                dummyBitmap.recycle()
+                            }
+                        } catch (_: Throwable) {}
                     }
 
                     try {
+                        Log.i(TAG, "Iniciando composición de teleprompter: input=$videoPath, output=$outputPath")
 
-                        // 1. Cargar cues dinámicas si fueron provistas
+                        // 1. Cargar cues dinámicas si fueron provistas con formato ARGB_8888 garantizado
                         if (cuesData != null && cuesData.isNotEmpty()) {
                             for (item in cuesData) {
                                 val entry = item as? Map<*, *> ?: continue
                                 val path = entry["imagePath"] as? String ?: continue
                                 val timeMs = (entry["startTimeMs"] as? Number)?.toLong() ?: 0L
-                                val file = File(path)
-                                if (file.exists()) {
-                                    val bmp = BitmapFactory.decodeFile(path)
-                                    if (bmp != null) {
-                                        loadedCues.add(DynamicCue(timeMs * 1000L, bmp))
-                                    }
+                                val bmp = decodeArgb8888Bitmap(path)
+                                if (bmp != null) {
+                                    loadedCues.add(DynamicCue(timeMs * 1000L, bmp))
                                 }
                             }
                             loadedCues.sortBy { it.startTimeUs }
+                            Log.i(TAG, "Cues decodificadas para teleprompter: ${loadedCues.size}")
                         }
 
                         // 2. Fallback a overlayPath estático si no hubo lista de cues
                         if (loadedCues.isEmpty() && overlayPath != null) {
-                            val singleFile = File(overlayPath)
-                            if (singleFile.exists()) {
-                                val bmp = BitmapFactory.decodeFile(overlayPath)
-                                if (bmp != null) {
-                                    loadedCues.add(DynamicCue(0L, bmp))
-                                }
+                            val bmp = decodeArgb8888Bitmap(overlayPath)
+                            if (bmp != null) {
+                                loadedCues.add(DynamicCue(0L, bmp))
+                                Log.i(TAG, "Overlay estático cargado como cue inicial.")
                             }
                         }
 
@@ -176,32 +191,37 @@ class MainActivity : FlutterActivity() {
                                 videoW = rawW
                                 videoH = rawH
                             }
+                            Log.i(TAG, "Dimensiones video detectadas: ${videoW}x${videoH} (rotación=$rot)")
                         } catch (e: Exception) {
                             Log.w(TAG, "No se pudieron extraer dimensiones de video: ${e.message}")
                         }
 
                         // 3. Crear overlay de teleprompter dinámico
                         if (loadedCues.isNotEmpty()) {
-                            // Proporción exacta de la cápsula (1080x320) respecto al fotograma de video
+                            // Proporción exacta de la cápsula (1080x330) respecto al fotograma de video
                             val scaleX = 0.92f
-                            val scaleY = (scaleX * (320f / 1080f) * (videoW / videoH)).coerceIn(0.12f, 0.25f)
+                            val scaleY = (scaleX * (330f / 1080f) * (videoW / videoH)).coerceIn(0.10f, 0.35f)
 
                             // En coordenadas NDC OpenGL: +Y es arriba (cerca de la cámara frontal), 0 es centro
                             val teleprompterSettings = OverlaySettings.Builder()
                                 .setScale(scaleX, scaleY)
-                                .setBackgroundFrameAnchor(0f, 0.70f)
+                                .setBackgroundFrameAnchor(0f, 0.72f)
                                 .setOverlayFrameAnchor(0f, 0f)
                                 .setAlphaScale(1.0f)
                                 .build()
 
                             val teleprompterOverlay = object : BitmapOverlay() {
-                                private var lastIndex = 0
-
                                 override fun getBitmap(presentationTimeUs: Long): Bitmap {
-                                    while (lastIndex + 1 < loadedCues.size && loadedCues[lastIndex + 1].startTimeUs <= presentationTimeUs) {
-                                        lastIndex++
+                                    if (loadedCues.isEmpty()) return dummyBitmap
+                                    var current = loadedCues[0].bitmap
+                                    for (cue in loadedCues) {
+                                        if (cue.startTimeUs <= presentationTimeUs) {
+                                            current = cue.bitmap
+                                        } else {
+                                            break
+                                        }
                                     }
-                                    return loadedCues[lastIndex].bitmap
+                                    return current
                                 }
 
                                 override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
@@ -213,26 +233,24 @@ class MainActivity : FlutterActivity() {
 
                         // 4. Marca de agua "ToroCorp Music" si se solicita
                         if (watermarkPath != null) {
-                            val wmFile = File(watermarkPath)
-                            if (wmFile.exists()) {
-                                val wmBmp = BitmapFactory.decodeFile(watermarkPath)
-                                if (wmBmp != null) {
-                                    val wmScaleX = 0.35f
-                                    val wmScaleY = (wmScaleX * (90f / 360f) * (videoW / videoH)).coerceIn(0.04f, 0.10f)
+                            val wmBmp = decodeArgb8888Bitmap(watermarkPath)
+                            if (wmBmp != null) {
+                                val wmScaleX = 0.35f
+                                val wmScaleY = (wmScaleX * (90f / 360f) * (videoW / videoH)).coerceIn(0.04f, 0.12f)
 
-                                    val wmSettings = OverlaySettings.Builder()
-                                        .setScale(wmScaleX, wmScaleY)
-                                        .setBackgroundFrameAnchor(0.70f, -0.85f)
-                                        .setOverlayFrameAnchor(0f, 0f)
-                                        .setAlphaScale(0.85f)
-                                        .build()
-                                    textureOverlays.add(BitmapOverlay.createStaticBitmapOverlay(wmBmp, wmSettings))
-                                }
+                                val wmSettings = OverlaySettings.Builder()
+                                    .setScale(wmScaleX, wmScaleY)
+                                    .setBackgroundFrameAnchor(0.60f, -0.85f)
+                                    .setOverlayFrameAnchor(0f, 0f)
+                                    .setAlphaScale(0.85f)
+                                    .build()
+                                textureOverlays.add(BitmapOverlay.createStaticBitmapOverlay(wmBmp, wmSettings))
                             }
                         }
 
                         // Si no hay ningún overlay que incrustar, retornar el video original de inmediato
                         if (textureOverlays.isEmpty()) {
+                            Log.w(TAG, "No se encontraron overlays válidos para incrustar, retornando original.")
                             cleanUpBitmaps()
                             safeReply(videoPath, false)
                             return@setMethodCallHandler
@@ -250,16 +268,18 @@ class MainActivity : FlutterActivity() {
                             outputFile.delete()
                         }
 
-                        // Factory con fallback habilitado para compatibilidad universal en cualquier sensor/hardware
+                        // Configurar codificador con fallback y especificar formato estándar compatible con todo hardware
                         val encoderFactory = DefaultEncoderFactory.Builder(applicationContext)
                             .setEnableFallback(true)
                             .build()
 
                         val transformer = Transformer.Builder(applicationContext)
                             .setEncoderFactory(encoderFactory)
+                            .setVideoMimeType(MimeTypes.VIDEO_H264)
+                            .setAudioMimeType(MimeTypes.AUDIO_AAC)
                             .addListener(object : Transformer.Listener {
                                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                                    Log.i(TAG, "Video con teleprompter procesado exitosamente: ${outputFile.absolutePath}")
+                                    Log.i(TAG, "Video con teleprompter procesado exitosamente: ${outputFile.absolutePath} (tam=${outputFile.length()})")
                                     cleanUpBitmaps()
                                     safeReply(outputPath, true)
                                 }
@@ -269,7 +289,10 @@ class MainActivity : FlutterActivity() {
                                     exportResult: ExportResult,
                                     exportException: ExportException
                                 ) {
-                                    Log.e(TAG, "Media3 Transformer error: ${exportException.message} (${exportException.errorCodeName})", exportException)
+                                    Log.e(TAG, "Media3 Transformer error: ${exportException.message} | Code: ${exportException.errorCode} (${exportException.errorCodeName})", exportException)
+                                    exportException.cause?.let {
+                                        Log.e(TAG, "Media3 Transformer inner cause: ${it.message}", it)
+                                    }
                                     cleanUpBitmaps()
                                     // Fallback seguro al video de la cámara
                                     safeReply(videoPath, false)
@@ -277,6 +300,7 @@ class MainActivity : FlutterActivity() {
                             })
                             .build()
 
+                        Log.i(TAG, "Iniciando Transformer.start hacia ${outputFile.absolutePath}...")
                         transformer.start(editedMediaItem, outputFile.absolutePath)
                     } catch (t: Throwable) {
                         Log.e(TAG, "Error iniciando composición: ${t.message}", t)

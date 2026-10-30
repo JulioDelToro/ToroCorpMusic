@@ -149,7 +149,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   RecordingMode _recordingMode = RecordingMode.withScript;
 
   // Grabación en Tiempo Real: compone cámara + teleprompter karaoke en vivo
-  bool _useRealtimeRecording = true;
+  final bool _useRealtimeRecording = true;
   final RealtimeRecordingService _realtimeRecordingService = RealtimeRecordingService();
 
   // Grabadora de audio dedicada para Modo Solo Karaoke / Audio
@@ -565,11 +565,6 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         setState(() {
           _recordingSeconds++;
         });
-        // Si graba con guion, registrar cue de actualización de tiempo para el cronómetro del video
-        if (_recordingMode == RecordingMode.withScript && _recordingStartTime != null) {
-          final elapsedMs = DateTime.now().difference(_recordingStartTime!).inMilliseconds;
-          _recordCurrentStateCue(elapsedMs);
-        }
       }
     });
 
@@ -692,6 +687,63 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       String finalVideoPath = videoFile.path;
       final List<File> tempFilesToClean = [];
 
+      // Mostrar diálogo modal de procesamiento visual mientras Media3 compone el video
+      BuildContext? progressDialogContext;
+      if (mounted && _recordingMode == RecordingMode.withScript) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (dCtx) {
+            progressDialogContext = dCtx;
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                backgroundColor: AppColors.surfaceDark,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: const BorderSide(color: AppColors.chordAmber, width: 1.5),
+                ),
+                content: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: CircularProgressIndicator(
+                          color: AppColors.chordAmber,
+                          strokeWidth: 3.5,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Creando video con Teleprompter...',
+                        style: TextStyle(
+                          color: AppColors.textWhite,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Incrustando letra, acordes y karaoke en alta definición (${config.resolution.label})...',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      }
+
       try {
         final tempDir = Directory.systemTemp;
 
@@ -701,9 +753,32 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
             _recordCurrentStateCue(0);
           }
 
+          // Filtrar cues redundantes consecutivas para optimizar velocidad de render y consumo de RAM
+          final distinctCues = <({
+            int startTimeMs,
+            int lineIndex,
+            int wordIndex,
+            LyricLine? currentLine,
+            LyricLine? nextLine,
+            LyricLine? thirdLine,
+            int elapsedSeconds,
+            bool isSinging,
+          })>[];
+
+          for (final cue in _recordedCueTimeline) {
+            if (distinctCues.isEmpty) {
+              distinctCues.add(cue);
+            } else {
+              final prev = distinctCues.last;
+              if (prev.lineIndex != cue.lineIndex || prev.wordIndex != cue.wordIndex) {
+                distinctCues.add(cue);
+              }
+            }
+          }
+
           final cuesPayload = <Map<String, dynamic>>[];
-          for (int i = 0; i < _recordedCueTimeline.length; i++) {
-            final cue = _recordedCueTimeline[i];
+          for (int i = 0; i < distinctCues.length; i++) {
+            final cue = distinctCues[i];
             final cuePngPath = '${tempDir.path}/dynamic_island_${DateTime.now().millisecondsSinceEpoch}_$i.png';
             await _compositor.renderTeleprompterOverlayImage(
               currentLyricLine: cue.currentLine,
@@ -746,11 +821,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
           final srtPath = '${tempDir.path}/ToroMusic_${DateTime.now().millisecondsSinceEpoch}.srt';
           final totalRecordMs = (_recordingSeconds > 0 ? _recordingSeconds : 1) * 1000;
           final srtCues = <({int startTimeMs, int endTimeMs, String text})>[];
-          for (int i = 0; i < _recordedCueTimeline.length; i++) {
-            final cue = _recordedCueTimeline[i];
+          for (int i = 0; i < distinctCues.length; i++) {
+            final cue = distinctCues[i];
             final startMs = cue.startTimeMs;
-            final nextStartMs = (i + 1 < _recordedCueTimeline.length)
-                ? _recordedCueTimeline[i + 1].startTimeMs
+            final nextStartMs = (i + 1 < distinctCues.length)
+                ? distinctCues[i + 1].startTimeMs
                 : totalRecordMs;
             final endMs = nextStartMs > startMs ? nextStartMs : startMs + 1500;
             final text = cue.currentLine?.fullText ?? '';
@@ -785,6 +860,11 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
         }
       } catch (e) {
         debugPrint('ToroCorp Music: Info composición teleprompter: $e');
+      }
+
+      // Cerrar diálogo modal de procesamiento antes de proceder
+      if (mounted && progressDialogContext != null && progressDialogContext!.mounted && Navigator.of(progressDialogContext!).canPop()) {
+        Navigator.of(progressDialogContext!).pop();
       }
 
       // Guardar en la Galería ANTES de eliminar archivos intermedios

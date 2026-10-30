@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/recording_mode.dart';
 import '../../scripts/models/lyric_token.dart';
@@ -65,6 +66,7 @@ class VideoRecordingCompositor {
       if (cues != null) args['cues'] = cues;
       if (watermarkPath != null) args['watermarkPath'] = watermarkPath;
 
+      debugPrint('ToroCorp Music: Invocando Media3 Transformer (cues=${cues?.length ?? 0})...');
       final Map<dynamic, dynamic>? result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
         'compositeVideoWithOverlay',
         args,
@@ -72,11 +74,12 @@ class VideoRecordingCompositor {
       if (result != null) {
         final path = result['path'] as String? ?? videoPath;
         final composited = result['composited'] as bool? ?? false;
+        debugPrint('ToroCorp Music: Media3 finalizado -> composited=$composited, path=$path');
         return (path: path, composited: composited);
       }
       return (path: videoPath, composited: false);
-    } catch (_) {
-      // Fallback seguro al video original si el compositor nativo no está disponible (e.g. en tests)
+    } catch (e, stack) {
+      debugPrint('ToroCorp Music: Error invocando Media3 Transformer: $e\n$stack');
       return (path: videoPath, composited: false);
     }
   }
