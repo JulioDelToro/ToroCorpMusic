@@ -146,7 +146,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   Timer? _recordingTimer;
   final bool _isMirrorMode = false;
   bool _hasSinglePass4K = false;
-  final RecordingMode _recordingMode = RecordingMode.clean;
+  RecordingMode _recordingMode = RecordingMode.withScript;
 
   // Grabación en Tiempo Real: compone cámara + teleprompter karaoke en vivo
   bool _useRealtimeRecording = true;
@@ -573,43 +573,15 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       }
     });
 
-    // Iniciar grabación de video en la cámara si está activa
+    // Iniciar grabación de video en la cámara con codificador de hardware a máxima tasa de cuadros
     if (_isCameraActive && _isCameraInitialized && _cameraController != null) {
-      if (_useRealtimeRecording) {
-        // Modo Tiempo Real: stream de frames + overlay compuesto directo a MP4
-        try {
-          final docsDir = await getApplicationDocumentsDirectory();
-          final timestamp = DateTime.now().millisecondsSinceEpoch;
-          final realtimePath = '${docsDir.path}/ToroMusic_Live_$timestamp.mp4';
-          // En video vertical (9:16), 720x1280 es la resolución nativa óptima para composición fluida
-          const targetWidth = 720;
-          const targetHeight = 1280;
-          final sensorRot = _cameraController!.description.sensorOrientation;
-          final isFront = _cameraController!.description.lensDirection == CameraLensDirection.front;
-
-          await _realtimeRecordingService.startRecording(
-            outputPath: realtimePath,
-            width: targetWidth,
-            height: targetHeight,
-            rotationDegrees: sensorRot,
-            isFront: isFront,
-          );
-          await _pushRealtimeOverlay();
-          await _cameraController!.startImageStream((CameraImage image) {
-            _realtimeRecordingService.pushCameraFrame(image);
-          });
-          debugPrint('ToroCorp Music: Grabación en tiempo real iniciada: $realtimePath ($targetWidth x $targetHeight, rot=$sensorRot)');
-        } catch (e) {
-          debugPrint('ToroCorp Music: Error iniciando grabación en tiempo real: $e');
+      try {
+        if (!_cameraController!.value.isRecordingVideo) {
+          await _cameraController!.startVideoRecording();
+          debugPrint('ToroCorp Music: Grabación de cámara por hardware iniciada a 30/60 FPS nativos.');
         }
-      } else {
-        try {
-          if (!_cameraController!.value.isRecordingVideo) {
-            await _cameraController!.startVideoRecording();
-          }
-        } catch (e) {
-          debugPrint('ToroCorp Music: Info iniciar grabación video: $e');
-        }
+      } catch (e) {
+        debugPrint('ToroCorp Music: Info iniciar grabación video: $e');
       }
     } else if (!_isCameraActive) {
       // Modo Solo Karaoke / Audio: grabar como grabadora de audio en máxima calidad (320 kbps 48kHz estéreo)
@@ -656,33 +628,14 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       _isRecording = false;
     });
 
-    // Detener cámara y obtener archivo de video
+    // Detener cámara y obtener archivo de video grabado por hardware
     XFile? videoFile;
-    String? realtimeSavedPath;
 
-    if (_isCameraActive && _isCameraInitialized) {
-      if (_useRealtimeRecording) {
-        try {
-          await _cameraController?.stopImageStream();
-        } catch (e) {
-          debugPrint('ToroCorp Music: Error deteniendo image stream: $e');
-        }
-
-        try {
-          final resPath = await _realtimeRecordingService.stopRecording();
-          if (resPath.isNotEmpty && File(resPath).existsSync()) {
-            realtimeSavedPath = resPath;
-            await _saveVideoToGallery(realtimeSavedPath);
-          }
-        } catch (e) {
-          debugPrint('ToroCorp Music: Error finalizando grabación en tiempo real: $e');
-        }
-      } else if (_cameraController?.value.isRecordingVideo ?? false) {
-        try {
-          videoFile = await _cameraController?.stopVideoRecording();
-        } catch (e) {
-          debugPrint('Error al detener grabación: $e');
-        }
+    if (_isCameraActive && _isCameraInitialized && (_cameraController?.value.isRecordingVideo ?? false)) {
+      try {
+        videoFile = await _cameraController?.stopVideoRecording();
+      } catch (e) {
+        debugPrint('Error al detener grabación: $e');
       }
     } else if (!_isCameraActive) {
       // Modo Solo Karaoke / Audio: detener grabadora de audio y notificar
@@ -861,9 +814,7 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       onDismissed: () {
         if (mounted) {
           final String feedbackMsg;
-          if (realtimeSavedPath != null) {
-            feedbackMsg = '¡Video en Tiempo Real (Cámara + Letra) guardado directamente en la Galería ("ToroCorpMusic")!';
-          } else if (videoFile != null) {
+          if (videoFile != null) {
             if (_recordingMode == RecordingMode.withScript) {
               if (isCompositedSuccess) {
                 feedbackMsg = '¡Video con Teleprompter dinámico guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!';
@@ -1453,27 +1404,29 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           onTap: _triggerHandsFreeCountdown,
                         ),
 
-                        // 1.5. Grabar en Tiempo Real (Cámara + Letra en vivo sin post-proceso)
+                        // 1.5. Incrustar Letra y Acordes en el Video (Composición GPU OpenGL)
                         _buildMenuItem(
-                          icon: Icons.layers,
-                          iconColor: _useRealtimeRecording ? AppColors.chordAmber : AppColors.textSecondary,
-                          title: 'Grabar en Tiempo Real',
-                          subtitle: _useRealtimeRecording
-                              ? 'Cámara + Letra en vivo (Sin espera)'
-                              : 'Video estándar de cámara',
-                          isActive: _useRealtimeRecording,
+                          icon: Icons.subtitles,
+                          iconColor: _recordingMode == RecordingMode.withScript ? AppColors.chordAmber : AppColors.textSecondary,
+                          title: 'Incrustar Letra Karaoke',
+                          subtitle: _recordingMode == RecordingMode.withScript
+                              ? 'Cámara 1080p + Letra GPU (30/60 FPS fluidos)'
+                              : 'Video limpio sin teleprompter',
+                          isActive: _recordingMode == RecordingMode.withScript,
                           trailing: Switch.adaptive(
-                            value: _useRealtimeRecording,
+                            value: _recordingMode == RecordingMode.withScript,
                             activeTrackColor: AppColors.chordAmber,
                             onChanged: (val) {
                               setState(() {
-                                _useRealtimeRecording = val;
+                                _recordingMode = val ? RecordingMode.withScript : RecordingMode.clean;
                               });
                             },
                           ),
                           onTap: () {
                             setState(() {
-                              _useRealtimeRecording = !_useRealtimeRecording;
+                              _recordingMode = _recordingMode == RecordingMode.withScript
+                                  ? RecordingMode.clean
+                                  : RecordingMode.withScript;
                             });
                           },
                         ),
