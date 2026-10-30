@@ -5,6 +5,11 @@ enum RecordingMode {
 
   /// Graba el video con la letra, notas y efecto karaoke incrustados directamente
   withScript,
+
+  /// Graba en tiempo real: compone el feed de la cámara frontal con el overlay
+  /// del teleprompter karaoke directamente en el dispositivo sin post-procesado.
+  /// El MP4 final está listo en la galería al instante.
+  realtime,
 }
 
 /// Resoluciones soportadas para grabación

@@ -38,9 +38,13 @@ class MainActivity : FlutterActivity() {
     private val TAG = "ToroCorpMusic"
     private val CHANNEL = "com.torocorp.toro_music_teleprompter/video_compositor"
     private val METRONOME_CHANNEL = "com.torocorp.toro_music_teleprompter/metronome"
+    private val REALTIME_CHANNEL = "com.torocorp.toro_music_teleprompter/realtime_compositor"
 
     private var toneGeneratorHigh: ToneGenerator? = null
     private var toneGeneratorLow: ToneGenerator? = null
+
+    // Servicio de composición en tiempo real (cámara + overlay karaoke → MP4 directo)
+    private val realtimeCompositor = RealtimeCompositorService()
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -280,6 +284,85 @@ class MainActivity : FlutterActivity() {
                         safeReply(videoPath, false)
                     }
                 }
+                else -> result.notImplemented()
+            }
+        }
+
+        // ── Canal de composición en tiempo real (cámara + overlay karaoke → MP4 sin post-proceso) ──
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, REALTIME_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startRecording" -> {
+                    val outputPath = call.argument<String>("outputPath")
+                    val width = call.argument<Int>("width") ?: 720
+                    val height = call.argument<Int>("height") ?: 1280
+                    val rotationDegrees = call.argument<Int>("rotationDegrees") ?: 270
+                    val isFront = call.argument<Boolean>("isFront") ?: true
+
+                    if (outputPath == null) {
+                        result.error("INVALID_ARGS", "outputPath es requerido", null)
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        realtimeCompositor.startRecording(outputPath, width, height, rotationDegrees, isFront)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error en startRecording (realtime): ${e.message}", e)
+                        result.error("START_ERROR", e.message, null)
+                    }
+                }
+
+                "updateOverlay" -> {
+                    val pngBytes = call.argument<ByteArray>("pngBytes")
+                    if (pngBytes != null && pngBytes.isNotEmpty()) {
+                        try {
+                            realtimeCompositor.updateOverlay(pngBytes)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "updateOverlay error: ${e.message}")
+                            result.success(false)
+                        }
+                    } else {
+                        result.success(false)
+                    }
+                }
+
+                "pushCameraFrame" -> {
+                    val yPlane = call.argument<ByteArray>("yPlane")
+                    val uPlane = call.argument<ByteArray>("uPlane")
+                    val vPlane = call.argument<ByteArray>("vPlane")
+                    val width = call.argument<Int>("width") ?: 0
+                    val height = call.argument<Int>("height") ?: 0
+                    val rowStride = call.argument<Int>("rowStride") ?: width
+                    val uvRowStride = call.argument<Int>("uvRowStride") ?: (width / 2)
+                    val uvPixelStride = call.argument<Int>("uvPixelStride") ?: 1
+
+                    if (yPlane != null && uPlane != null && vPlane != null && width > 0 && height > 0) {
+                        try {
+                            realtimeCompositor.pushCameraFrame(
+                                yPlane, uPlane, vPlane,
+                                width, height, rowStride, uvRowStride, uvPixelStride
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "pushCameraFrame error: ${e.message}")
+                            result.success(false)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "Planos YUV y dimensiones son requeridos", null)
+                    }
+                }
+
+                "stopRecording" -> {
+                    try {
+                        val finalPath = realtimeCompositor.stopRecording()
+                        result.success(finalPath)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error en stopRecording (realtime): ${e.message}", e)
+                        result.error("STOP_ERROR", e.message, null)
+                    }
+                }
+
                 else -> result.notImplemented()
             }
         }

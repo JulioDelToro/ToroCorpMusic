@@ -21,6 +21,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../recording/models/recording_mode.dart';
+import '../../recording/services/realtime_recording_service.dart';
 import '../../recording/services/video_recording_compositor.dart';
 import '../../scripts/models/song_script.dart';
 import '../../scripts/presentation/saved_songs_dialog.dart';
@@ -147,6 +148,10 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
   bool _hasSinglePass4K = false;
   final RecordingMode _recordingMode = RecordingMode.clean;
 
+  // Grabación en Tiempo Real: compone cámara + teleprompter karaoke en vivo
+  bool _useRealtimeRecording = true;
+  final RealtimeRecordingService _realtimeRecordingService = RealtimeRecordingService();
+
   // Grabadora de audio dedicada para Modo Solo Karaoke / Audio
   final AudioRecorder _audioRecorder = AudioRecorder();
 
@@ -229,7 +234,45 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       if (currentLineIdx != _lastRecordedLineIndex || currentWordIdx != _lastRecordedWordIndex) {
         final elapsedMs = DateTime.now().difference(_recordingStartTime!).inMilliseconds;
         _recordCurrentStateCue(elapsedMs);
+
+        // Si la grabación en tiempo real está activa, actualizamos el overlay en el compositor nativo
+        if (_useRealtimeRecording && _isCameraActive) {
+          _pushRealtimeOverlay();
+        }
       }
+    }
+  }
+
+  /// Renderiza el overlay del teleprompter en memoria y lo envía al compositor nativo
+  Future<void> _pushRealtimeOverlay() async {
+    try {
+      final allLines = _teleprompterController.song.lines;
+      final currentLineIdx = _teleprompterController.currentLineIndex;
+      LyricLine? curLine;
+      LyricLine? nextL;
+      LyricLine? thirdL;
+
+      if (allLines.isNotEmpty && currentLineIdx < allLines.length) {
+        curLine = allLines[currentLineIdx];
+        if (currentLineIdx + 1 < allLines.length) nextL = allLines[currentLineIdx + 1];
+        if (currentLineIdx + 2 < allLines.length) thirdL = allLines[currentLineIdx + 2];
+      }
+
+      final pngBytes = await _compositor.renderTeleprompterOverlayToBytes(
+        currentLyricLine: curLine,
+        nextLyricLine: nextL,
+        thirdLyricLine: thirdL,
+        activeWordIndex: _teleprompterController.activeWordIndex,
+        elapsedSeconds: _recordingSeconds,
+        isSinging: _teleprompterController.isSinging,
+        highlightColor: _karaokeHighlightColor,
+      );
+
+      if (pngBytes.isNotEmpty) {
+        await _realtimeRecordingService.pushOverlayFrame(pngBytes);
+      }
+    } catch (e) {
+      debugPrint('ToroCorp Music: Error enviando overlay en tiempo real: $e');
     }
   }
 
@@ -532,12 +575,41 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
     // Iniciar grabación de video en la cámara si está activa
     if (_isCameraActive && _isCameraInitialized && _cameraController != null) {
-      try {
-        if (!_cameraController!.value.isRecordingVideo) {
-          await _cameraController!.startVideoRecording();
+      if (_useRealtimeRecording) {
+        // Modo Tiempo Real: stream de frames + overlay compuesto directo a MP4
+        try {
+          final docsDir = await getApplicationDocumentsDirectory();
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final realtimePath = '${docsDir.path}/ToroMusic_Live_$timestamp.mp4';
+          // En video vertical (9:16), 720x1280 es la resolución nativa óptima para composición fluida
+          const targetWidth = 720;
+          const targetHeight = 1280;
+          final sensorRot = _cameraController!.description.sensorOrientation;
+          final isFront = _cameraController!.description.lensDirection == CameraLensDirection.front;
+
+          await _realtimeRecordingService.startRecording(
+            outputPath: realtimePath,
+            width: targetWidth,
+            height: targetHeight,
+            rotationDegrees: sensorRot,
+            isFront: isFront,
+          );
+          await _pushRealtimeOverlay();
+          await _cameraController!.startImageStream((CameraImage image) {
+            _realtimeRecordingService.pushCameraFrame(image);
+          });
+          debugPrint('ToroCorp Music: Grabación en tiempo real iniciada: $realtimePath ($targetWidth x $targetHeight, rot=$sensorRot)');
+        } catch (e) {
+          debugPrint('ToroCorp Music: Error iniciando grabación en tiempo real: $e');
         }
-      } catch (e) {
-        debugPrint('ToroCorp Music: Info iniciar grabación video: $e');
+      } else {
+        try {
+          if (!_cameraController!.value.isRecordingVideo) {
+            await _cameraController!.startVideoRecording();
+          }
+        } catch (e) {
+          debugPrint('ToroCorp Music: Info iniciar grabación video: $e');
+        }
       }
     } else if (!_isCameraActive) {
       // Modo Solo Karaoke / Audio: grabar como grabadora de audio en máxima calidad (320 kbps 48kHz estéreo)
@@ -586,11 +658,31 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
 
     // Detener cámara y obtener archivo de video
     XFile? videoFile;
-    if (_isCameraActive && _isCameraInitialized && (_cameraController?.value.isRecordingVideo ?? false)) {
-      try {
-        videoFile = await _cameraController?.stopVideoRecording();
-      } catch (e) {
-        debugPrint('Error al detener grabación: $e');
+    String? realtimeSavedPath;
+
+    if (_isCameraActive && _isCameraInitialized) {
+      if (_useRealtimeRecording) {
+        try {
+          await _cameraController?.stopImageStream();
+        } catch (e) {
+          debugPrint('ToroCorp Music: Error deteniendo image stream: $e');
+        }
+
+        try {
+          final resPath = await _realtimeRecordingService.stopRecording();
+          if (resPath.isNotEmpty && File(resPath).existsSync()) {
+            realtimeSavedPath = resPath;
+            await _saveVideoToGallery(realtimeSavedPath);
+          }
+        } catch (e) {
+          debugPrint('ToroCorp Music: Error finalizando grabación en tiempo real: $e');
+        }
+      } else if (_cameraController?.value.isRecordingVideo ?? false) {
+        try {
+          videoFile = await _cameraController?.stopVideoRecording();
+        } catch (e) {
+          debugPrint('Error al detener grabación: $e');
+        }
       }
     } else if (!_isCameraActive) {
       // Modo Solo Karaoke / Audio: detener grabadora de audio y notificar
@@ -769,7 +861,9 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
       onDismissed: () {
         if (mounted) {
           final String feedbackMsg;
-          if (videoFile != null) {
+          if (realtimeSavedPath != null) {
+            feedbackMsg = '¡Video en Tiempo Real (Cámara + Letra) guardado directamente en la Galería ("ToroCorpMusic")!';
+          } else if (videoFile != null) {
             if (_recordingMode == RecordingMode.withScript) {
               if (isCompositedSuccess) {
                 feedbackMsg = '¡Video con Teleprompter dinámico guardado en la Galería ("ToroCorpMusic" • ${config.resolution.label})!';
@@ -1357,6 +1451,31 @@ class _StudioRecordingScreenState extends State<StudioRecordingScreen>
                           title: 'Cuenta Regresiva 5 Segundos',
                           subtitle: 'Iniciar grabación manos libres (5s)',
                           onTap: _triggerHandsFreeCountdown,
+                        ),
+
+                        // 1.5. Grabar en Tiempo Real (Cámara + Letra en vivo sin post-proceso)
+                        _buildMenuItem(
+                          icon: Icons.layers,
+                          iconColor: _useRealtimeRecording ? AppColors.chordAmber : AppColors.textSecondary,
+                          title: 'Grabar en Tiempo Real',
+                          subtitle: _useRealtimeRecording
+                              ? 'Cámara + Letra en vivo (Sin espera)'
+                              : 'Video estándar de cámara',
+                          isActive: _useRealtimeRecording,
+                          trailing: Switch.adaptive(
+                            value: _useRealtimeRecording,
+                            activeTrackColor: AppColors.chordAmber,
+                            onChanged: (val) {
+                              setState(() {
+                                _useRealtimeRecording = val;
+                              });
+                            },
+                          ),
+                          onTap: () {
+                            setState(() {
+                              _useRealtimeRecording = !_useRealtimeRecording;
+                            });
+                          },
                         ),
 
                         // 2. Activar / Desactivar Cámara (Modo solo Karaoke)
